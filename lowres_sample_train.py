@@ -3,7 +3,7 @@ Stage 2 training: NCSN++ score-based prior on PROBES at 128*128.
 Single-GPU run, ~32k optimization steps.
 
 Usage:
-    python small_sample_train.py --data_dir ./data/gals_gband_norm \
+    python lowres_sample_train.py --data_dir ./data/gals_gband_norm \
                                  --output_dir ./output/probes_diffusion_subset \
                                  --image_size 128 --batch_size 64 --epochs 1000 \
                                  --lr 2e-4 --nf 128 --ch_mult 1 2 2 2
