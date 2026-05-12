@@ -1,4 +1,7 @@
 /data/raws/*
-/data/gals_gband_norm/*
 outputs/
 slurm_logs/
+.venv/
+*.egg-info/
+__pycache__/
+*.py[cod]

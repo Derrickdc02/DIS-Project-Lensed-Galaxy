@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dis-project-lensed-galaxy"
+version = "0.1.0"
+description = "Score-based diffusion experiments for lensed galaxy image priors."
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "numpy>=1.24,<2.0",
+    "torch>=2.1,<3.0",
+    "score-models==0.5.11",
+]
+
+[project.optional-dependencies]
+preprocess = [
+    "astropy>=5.3",
+    "tqdm>=4.66",
+]
+notebooks = [
+    "ipykernel>=6.29",
+    "jupyterlab>=4.0",
+    "matplotlib>=3.8",
+]
+all = [
+    "dis-project-lensed-galaxy[preprocess,notebooks]",
+]
+
+[project.scripts]
+train-prior = "train_prior:main"
+train-prior-lowres = "lowres_sample_train:main"
+
+[tool.setuptools]
+py-modules = ["train_prior", "lowres_sample_train"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
