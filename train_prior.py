@@ -27,6 +27,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import Dataset
 
 from score_models import ScoreModel, NCSNpp
@@ -38,11 +39,11 @@ from score_models import ScoreModel, NCSNpp
 def setup_distributed():
     """Initialize torch.distributed when launched via torchrun, else fall back to single-process."""
     if 'WORLD_SIZE' in os.environ and int(os.environ['WORLD_SIZE']) > 1:
-        dist.init_process_group(backend='nccl')
         local_rank = int(os.environ['LOCAL_RANK'])
+        torch.cuda.set_device(local_rank)
+        dist.init_process_group(backend='nccl', device_id=torch.device(f'cuda:{local_rank}'))
         rank = int(os.environ['RANK'])
         world_size = int(os.environ['WORLD_SIZE'])
-        torch.cuda.set_device(local_rank)
         return local_rank, rank, world_size
     return 0, 0, 1
 
@@ -199,9 +200,24 @@ def main():
                          n_subset=n_subset,
                          image_size=args.image_size,
                          verbose=main_proc)
+    global_size = len(images)
+
+    if world_size > 1:
+        rng = np.random.RandomState(args.seed)
+        indices = rng.permutation(global_size)
+        samples_per_rank = int(np.ceil(global_size / world_size))
+        total_size = samples_per_rank * world_size
+        if total_size > global_size:
+            padding = indices[:total_size - global_size]
+            indices = np.concatenate([indices, padding])
+        rank_indices = indices[rank:total_size:world_size]
+        images = images[rank_indices]
+        if main_proc:
+            print(f'Sharded: {samples_per_rank} samples/rank (global {global_size})')
+
     dataset = ProbesDataset(images, device=device)
     if main_proc:
-        print(f'Dataset: {len(dataset)} images on {dataset.images.device}')
+        print(f'Dataset: {len(dataset)} local images on {dataset.images.device}')
 
     # ---- Sigma_max ----
     if args.sigma_max < 0:
@@ -217,7 +233,11 @@ def main():
         nf = args.nf,
         ch_mult = args.ch_mult,
         dimensions = 2,
-    )
+    ).to(device)
+
+    if dist.is_initialized():
+        net = DDP(net, device_ids=[local_rank], output_device=local_rank)
+
     model = ScoreModel(
         model = net,
         sigma_min = args.sigma_min,
@@ -230,7 +250,7 @@ def main():
 
     # ---- Steps estimate ----
     effective_bs = args.batch_size * world_size
-    steps_per_epoch = max(1, len(dataset) // effective_bs)
+    steps_per_epoch = max(1, int(np.ceil(global_size / effective_bs)))
     total_steps = steps_per_epoch * args.epochs
     if main_proc:
         print(f'Plan: {args.epochs} epochs × {steps_per_epoch} steps '
@@ -261,8 +281,8 @@ def main():
         checkpoints=checkpoints_every_epochs,
         models_to_keep=args.keep_last_n,
         checkpoints_directory=str(output_dir),
-        seed=args.seed,
-        verbose=1 if args.log_every_steps > 0 else 0,
+        seed=args.seed + rank,
+        verbose=1 if (main_proc and args.log_every_steps > 0) else 0,
     )
     elapsed = time.time() - t0
     if main_proc:

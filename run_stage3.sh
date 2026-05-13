@@ -22,7 +22,7 @@
 #! Note that the job submission script will enforce no more than 32 cpus per GPU.
 #SBATCH --gres=gpu:4
 #! How much wallclock time will be required?
-#SBATCH --time=0:10:00
+#SBATCH --time=20:00:00
 #! What types of email messages do you wish to receive?
 #SBATCH --mail-type=END,FAIL
 #! Uncomment this to prevent the job from being requeued (e.g. if
@@ -77,8 +77,8 @@ options="--standalone --nproc_per_node=4 train_prior.py \
     --nf 128 \
     --ch_mult 1 1 2 2 2 2 2 \
     --sigma_min 1e-4 \
-    --epochs 2 \
-    --batch_size 16 \
+    --epochs 2700 \
+    --batch_size 4 \
     --lr 1e-4 \
     --ema_decay 0.9999 \
     --warmup 5000 \
