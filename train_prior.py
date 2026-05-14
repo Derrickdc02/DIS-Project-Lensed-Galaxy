@@ -1,49 +1,36 @@
 """
-Stage 2 training: NCSN++ score-based prior on PROBES at 256*256.
-4-GPU DistributedDataParallel run.
+DDP training for the 256x256 PROBES score-based prior.
 
-Launch with torchrun:
-    torchrun --standalone --nproc_per_node=4 train_prior.py \
-        --data_dir ./data/gals_gband_norm \
-        --output_dir ./output/probes_diffusion_prior \
-        --image_size 256 --batch_size 4 --epochs 2700 \
-        --lr 2e-4 --nf 128 --ch_mult 1 1 2 2 2 2 2
-
-Defaults follow Adam et al. 2022:
-    * effective batch size = batch_size * world_size = 4 * 4 = 16
-    * ~2700 epochs * (2059 // 16) ≈ 350k optimization steps
-    * sigma_max = 263.4 (their estimate from PROBES pairwise distances)
-    * sigma_min = 1e-4
-Pass `--sigma_max -1` to recompute the estimate from the loaded data.
+This script intentionally does not call ScoreModel.fit().  The score_models
+library provides the NCSN++ architecture, VE SDE setup, and DSM loss through
+ScoreModel.loss_fn(), while this file owns distributed data loading, optimizer
+steps, EMA, checkpointing, and resume.
 """
 
-import os
-import glob
 import argparse
+import glob
+import json
+import os
 import time
 from pathlib import Path
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 import torch.distributed as dist
+import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset, DistributedSampler
 
-from score_models import ScoreModel, NCSNpp
+from score_models import NCSNpp, ScoreModel
 
 
-# ----------------------------
-# Distributed helpers
-# ----------------------------
 def setup_distributed():
-    """Initialize torch.distributed when launched via torchrun, else fall back to single-process."""
-    if 'WORLD_SIZE' in os.environ and int(os.environ['WORLD_SIZE']) > 1:
-        local_rank = int(os.environ['LOCAL_RANK'])
+    if "WORLD_SIZE" in os.environ and int(os.environ["WORLD_SIZE"]) > 1:
+        local_rank = int(os.environ["LOCAL_RANK"])
+        rank = int(os.environ["RANK"])
+        world_size = int(os.environ["WORLD_SIZE"])
         torch.cuda.set_device(local_rank)
-        dist.init_process_group(backend='nccl', device_id=torch.device(f'cuda:{local_rank}'))
-        rank = int(os.environ['RANK'])
-        world_size = int(os.environ['WORLD_SIZE'])
+        dist.init_process_group(backend="nccl")
         return local_rank, rank, world_size
     return 0, 0, 1
 
@@ -57,43 +44,63 @@ def is_main(rank):
     return rank == 0
 
 
-# ----------------------------
-# Data
-# ----------------------------
+def barrier():
+    if dist.is_initialized():
+        dist.barrier()
+
+
+def reduce_mean(value, device):
+    tensor = torch.tensor(float(value), device=device)
+    if dist.is_initialized():
+        dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
+        tensor /= dist.get_world_size()
+    return tensor.item()
+
+
+def distributed_any(flag, device):
+    tensor = torch.tensor(int(flag), device=device)
+    if dist.is_initialized():
+        dist.all_reduce(tensor, op=dist.ReduceOp.MAX)
+    return bool(tensor.item())
+
+
 def load_probes(path, n_subset=None, image_size=256, seed=21, verbose=True):
-    """Load preprocessed PROBES g-band .npy files in [-1, 1]"""
+    """Load preprocessed PROBES .npy files as arrays with shape (N, H, W)."""
     rng = np.random.RandomState(seed)
     files = sorted(glob.glob(str(Path(path) / "*.npy")))
     if not files:
         raise ValueError(f"No .npy files found in {path}")
 
-    if n_subset and n_subset < len(files):
-        files = [files[i] for i in rng.choice(len(files), size=n_subset, replace=False)]
+    if n_subset is not None and n_subset > 0 and n_subset < len(files):
+        subset = rng.choice(len(files), size=n_subset, replace=False)
+        files = [files[i] for i in subset]
 
     images = np.stack([np.load(f) for f in files]).astype(np.float32)
     if images.ndim == 4:
         images = images[:, 0]
-    if verbose:
-        print(f'Loaded: {images.shape}, range=[{images.min():.4g}, {images.max():.4g}]')
+    if images.ndim != 3:
+        raise ValueError(f"Expected images with shape (N, H, W), got {images.shape}")
 
     if images.shape[1] != image_size or images.shape[2] != image_size:
         t = torch.from_numpy(images).unsqueeze(1)
-        t = F.interpolate(t, size=(image_size, image_size),
-                          mode='bilinear', align_corners=False)
+        t = F.interpolate(t, size=(image_size, image_size), mode="bilinear", align_corners=False)
         images = t.squeeze(1).numpy()
         if verbose:
-            print(f'Resized to {image_size}x{image_size}')
+            print(f"Resized images to {image_size}x{image_size}")
 
     if verbose:
-        print(f'Final: {images.shape}, range=[{images.min():.4f}, {images.max():.4f}]')
+        print(
+            f"Loaded {len(images)} images, shape={images.shape}, "
+            f"range=[{images.min():.4f}, {images.max():.4f}]"
+        )
     return images
 
 
 class ProbesDataset(Dataset):
-    """Tensors (N, 1, H, W) in [-1, 1], pre-moved to device"""
-    def __init__(self, images, device=None):
-        t = torch.from_numpy(images).float().unsqueeze(1)
-        self.images = t.to(device) if device is not None else t
+    """CPU tensor dataset. Batches are moved to GPU inside the training loop."""
+
+    def __init__(self, images):
+        self.images = torch.from_numpy(images).float().unsqueeze(1)
 
     def __len__(self):
         return len(self.images)
@@ -102,195 +109,387 @@ class ProbesDataset(Dataset):
         return self.images[idx]
 
 
-# ----------------------------
-# Sigma_max heuristic
-# ----------------------------
-def estimate_sigma_max(dataset, n_pairs=5000, seed=21):
-    flat = dataset.images.view(len(dataset), -1)
+def estimate_sigma_max(images, n_pairs=5000, seed=21):
+    """Estimate max pairwise Euclidean distance on the normalized images."""
+    flat = torch.from_numpy(images).float().view(len(images), -1)
     rng = np.random.RandomState(seed)
-    pairs = rng.randint(0, len(flat), (n_pairs, 2))
-    sigma_max = max((flat[i] - flat[j]).norm().item() for i, j in pairs)
+    pairs = rng.randint(0, len(flat), size=(n_pairs, 2))
+    sigma_max = 0.0
+    for i, j in pairs:
+        sigma_max = max(sigma_max, (flat[i] - flat[j]).norm().item())
     return sigma_max
 
 
-# ----------------------------
-# Main (training loop)
-# ----------------------------
-def main():
+class EMA:
+    def __init__(self, parameters, decay):
+        params = [p for p in parameters if p.requires_grad]
+        self.decay = decay
+        self.shadow = [p.detach().clone() for p in params]
+        self.backup = None
+
+    @torch.no_grad()
+    def update(self, parameters):
+        params = [p for p in parameters if p.requires_grad]
+        for shadow, param in zip(self.shadow, params):
+            shadow.mul_(self.decay).add_(param.detach(), alpha=1.0 - self.decay)
+
+    @torch.no_grad()
+    def store(self, parameters):
+        self.backup = [p.detach().clone() for p in parameters if p.requires_grad]
+
+    @torch.no_grad()
+    def copy_to(self, parameters):
+        params = [p for p in parameters if p.requires_grad]
+        for param, shadow in zip(params, self.shadow):
+            param.copy_(shadow)
+
+    @torch.no_grad()
+    def restore(self, parameters):
+        if self.backup is None:
+            return
+        params = [p for p in parameters if p.requires_grad]
+        for param, backup in zip(params, self.backup):
+            param.copy_(backup)
+        self.backup = None
+
+    def state_dict(self):
+        return {
+            "decay": self.decay,
+            "shadow": [shadow.detach().cpu() for shadow in self.shadow],
+        }
+
+    def load_state_dict(self, state, parameters):
+        params = [p for p in parameters if p.requires_grad]
+        self.decay = float(state["decay"])
+        self.shadow = [
+            shadow.to(device=param.device, dtype=param.dtype)
+            for shadow, param in zip(state["shadow"], params)
+        ]
+
+
+def cpu_state_dict(module):
+    return {key: value.detach().cpu() for key, value in module.state_dict().items()}
+
+
+def atomic_torch_save(obj, path):
+    path = Path(path)
+    tmp_path = path.with_name(path.name + ".tmp")
+    torch.save(obj, tmp_path)
+    os.replace(tmp_path, path)
+
+
+def save_checkpoint(path, raw_net, optimizer, ema, epoch, step, args, score_model_hparams):
+    current_model = cpu_state_dict(raw_net)
+
+    ema.store(raw_net.parameters())
+    ema.copy_to(raw_net.parameters())
+    ema_model = cpu_state_dict(raw_net)
+    ema.restore(raw_net.parameters())
+
+    checkpoint = {
+        "model": current_model,
+        "ema_model": ema_model,
+        "optimizer": optimizer.state_dict(),
+        "ema": ema.state_dict(),
+        "epoch": int(epoch),
+        "step": int(step),
+        "args": vars(args),
+        "score_model_hyperparameters": score_model_hparams,
+    }
+    atomic_torch_save(checkpoint, path)
+
+
+def strip_module_prefix(state_dict):
+    if not state_dict:
+        return state_dict
+    if all(key.startswith("module.") for key in state_dict):
+        return {key[len("module.") :]: value for key, value in state_dict.items()}
+    return state_dict
+
+
+def load_checkpoint(path, raw_net, optimizer, ema, device):
+    ckpt = torch.load(path, map_location=device, weights_only=False)
+
+    if isinstance(ckpt, dict) and "model" in ckpt:
+        raw_net.load_state_dict(strip_module_prefix(ckpt["model"]))
+        if "optimizer" in ckpt:
+            optimizer.load_state_dict(ckpt["optimizer"])
+        if "ema" in ckpt:
+            ema.load_state_dict(ckpt["ema"], raw_net.parameters())
+        return int(ckpt.get("epoch", -1)) + 1, int(ckpt.get("step", 0))
+
+    raw_net.load_state_dict(strip_module_prefix(ckpt))
+    return 0, 0
+
+
+def prune_old_checkpoints(output_dir, keep_last_n):
+    if keep_last_n <= 0:
+        return
+    paths = sorted(Path(output_dir).glob("checkpoint_step_*.pt"))
+    excess = len(paths) - keep_last_n
+    for path in paths[: max(0, excess)]:
+        path.unlink(missing_ok=True)
+
+
+def build_arg_parser():
     parser = argparse.ArgumentParser()
 
-    # Data
-    parser.add_argument('--data_dir', type=str, required=True)
-    parser.add_argument('--output_dir', type=str, required=True)
-    parser.add_argument('--n_subset', type=int, default=-1,
-                        help='-1 for full dataset')
-    parser.add_argument('--image_size', type=int, default=256)
+    parser.add_argument("--data_dir", type=str, required=True)
+    parser.add_argument("--output_dir", type=str, required=True)
+    parser.add_argument("--n_subset", type=int, default=-1, help="-1 for the full dataset")
+    parser.add_argument("--image_size", type=int, default=256)
 
-    # Architecture
-    parser.add_argument('--nf', type=int, default=128)
-    parser.add_argument('--ch_mult', type=int, nargs='+',
-                        default=[1, 1, 2, 2, 2, 2, 2],
-                        help='Yang Song reference NCSN++ for 256x256 '
-                             '(7 levels: 256->128->64->32->16->8->4)')
+    parser.add_argument("--nf", type=int, default=128)
+    parser.add_argument("--ch_mult", type=int, nargs="+", default=[1, 1, 2, 2, 2, 2, 2])
 
-    # SDE
-    parser.add_argument('--sigma_min', type=float, default=1e-4)
-    parser.add_argument('--sigma_max', type=float, default=263.4,
-                        help='set <0 to auto-estimate from data; '
-                             '263.4 matches Adam et al. 2022 PROBES estimate')
+    parser.add_argument("--sigma_min", type=float, default=1e-4)
+    parser.add_argument(
+        "--sigma_max",
+        type=float,
+        default=263.4,
+        help="Use 263.4 for Adam et al. reproduction; set <0 to estimate from data.",
+    )
+    parser.add_argument("--sigma_max_pairs", type=int, default=5000)
 
-    # Training
-    parser.add_argument('--epochs', type=int, default=2700,
-                        help='~350k steps at effective bs=16 on 2059 galaxies')
-    parser.add_argument('--batch_size', type=int, default=4,
-                        help='per-GPU batch size; effective = batch_size * world_size '
-                             '(paper uses total bs=16 on 4 GPUs)')
-    parser.add_argument('--lr', type=float, default=2e-4)
-    parser.add_argument('--seed', type=int, default=21)
+    parser.add_argument("--epochs", type=int, default=2700)
+    parser.add_argument("--batch_size", type=int, default=4, help="Per-GPU batch size")
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--ema_decay", type=float, default=0.9999)
+    parser.add_argument("--warmup", type=int, default=5000)
+    parser.add_argument("--clip", type=float, default=1.0)
+    parser.add_argument("--seed", type=int, default=21)
 
-    # Optimization / regularization
-    parser.add_argument('--ema_decay', type=float, default=0.9999)
-    parser.add_argument('--warmup', type=int, default=0,
-                        help='linear LR warmup in optimizer steps')
-    parser.add_argument('--clip', type=float, default=0.0,
-                        help='gradient-norm clip; 0 disables')
+    parser.add_argument("--num_workers", type=int, default=4)
+    parser.add_argument("--ckpt_every_steps", type=int, default=1000)
+    parser.add_argument("--log_every_steps", type=int, default=50)
+    parser.add_argument("--keep_last_n", type=int, default=3)
+    parser.add_argument("--max_hours", type=float, default=float("inf"))
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default="auto",
+        help="'auto' loads output_dir/latest.pt if present; 'none' disables resume; otherwise pass a path.",
+    )
 
-    # Wallclock / checkpointing
-    parser.add_argument('--max_hours', type=float, default=float('inf'),
-                        help='stop training after this many hours and save a checkpoint')
-    parser.add_argument('--ckpt_every_steps', type=int, default=0,
-                        help='checkpoint cadence in optimizer steps; '
-                             'converted to epoch cadence using steps_per_epoch (0 = library default)')
-    parser.add_argument('--log_every_steps', type=int, default=0,
-                        help='accepted for compatibility; library logs per-epoch only. '
-                             '>0 enables verbose=1 epoch logging')
-    parser.add_argument('--keep_last_n', type=int, default=2,
-                        help='maps to models_to_keep')
+    return parser
 
-    args = parser.parse_args()
 
-    # ---- Distributed setup ----
+def main():
+    args = build_arg_parser().parse_args()
+
     local_rank, rank, world_size = setup_distributed()
     main_proc = is_main(rank)
+    device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
 
-    if torch.cuda.is_available():
-        device = torch.device(f'cuda:{local_rank}')
-    else:
-        device = torch.device('cpu')
-
-    if main_proc:
-        print(f'World size: {world_size} | rank: {rank} | local_rank: {local_rank}')
-        print(f'Using device: {device}')
-        if device.type == 'cuda':
-            print(f'GPU: {torch.cuda.get_device_name(local_rank)}')
-            print(f'Memory: {torch.cuda.get_device_properties(local_rank).total_memory / 1e9:.2f} GB')
-
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
+    torch.manual_seed(args.seed + rank)
+    np.random.seed(args.seed + rank)
+    if device.type == "cuda":
+        torch.cuda.manual_seed_all(args.seed + rank)
+        torch.backends.cudnn.benchmark = True
 
     output_dir = Path(args.output_dir)
     if main_proc:
         output_dir.mkdir(parents=True, exist_ok=True)
-    if dist.is_initialized():
-        dist.barrier()
+        with open(output_dir / "args.json", "w") as f:
+            json.dump(vars(args), f, indent=2)
+    barrier()
 
-    # ---- Data ----
     n_subset = None if args.n_subset == -1 else args.n_subset
-    images = load_probes(args.data_dir,
-                         n_subset=n_subset,
-                         image_size=args.image_size,
-                         verbose=main_proc)
-    global_size = len(images)
+    images = load_probes(
+        args.data_dir,
+        n_subset=n_subset,
+        image_size=args.image_size,
+        seed=args.seed,
+        verbose=main_proc,
+    )
 
-    if world_size > 1:
-        rng = np.random.RandomState(args.seed)
-        indices = rng.permutation(global_size)
-        samples_per_rank = int(np.ceil(global_size / world_size))
-        total_size = samples_per_rank * world_size
-        if total_size > global_size:
-            padding = indices[:total_size - global_size]
-            indices = np.concatenate([indices, padding])
-        rank_indices = indices[rank:total_size:world_size]
-        images = images[rank_indices]
-        if main_proc:
-            print(f'Sharded: {samples_per_rank} samples/rank (global {global_size})')
-
-    dataset = ProbesDataset(images, device=device)
-    if main_proc:
-        print(f'Dataset: {len(dataset)} local images on {dataset.images.device}')
-
-    # ---- Sigma_max ----
     if args.sigma_max < 0:
-        sigma_max = estimate_sigma_max(dataset)
+        sigma_tensor = torch.zeros((), device=device)
+        if main_proc:
+            sigma_tensor.fill_(estimate_sigma_max(images, args.sigma_max_pairs, args.seed))
+        if dist.is_initialized():
+            dist.broadcast(sigma_tensor, src=0)
+        sigma_max = float(sigma_tensor.item())
     else:
         sigma_max = args.sigma_max
-    if main_proc:
-        print(f'VE SDE: sigma_min={args.sigma_min:.1e}, sigma_max={sigma_max:.2f}')
 
-    # ---- Model ----
-    net = NCSNpp(
-        channels = 1,
-        nf = args.nf,
-        ch_mult = args.ch_mult,
-        dimensions = 2,
+    dataset = ProbesDataset(images)
+    sampler = DistributedSampler(
+        dataset,
+        num_replicas=world_size,
+        rank=rank,
+        shuffle=True,
+        seed=args.seed,
+        drop_last=False,
+    )
+    loader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        sampler=sampler,
+        num_workers=args.num_workers,
+        pin_memory=(device.type == "cuda"),
+        drop_last=False,
+    )
+
+    raw_net = NCSNpp(
+        channels=1,
+        nf=args.nf,
+        ch_mult=args.ch_mult,
+        dimensions=2,
     ).to(device)
+    score_model = ScoreModel(
+        model=raw_net,
+        sigma_min=args.sigma_min,
+        sigma_max=sigma_max,
+        device=device,
+    )
 
     if dist.is_initialized():
-        net = DDP(net, device_ids=[local_rank], output_device=local_rank)
+        score_model.model = DDP(raw_net, device_ids=[local_rank], output_device=local_rank)
 
-    model = ScoreModel(
-        model = net,
-        sigma_min = args.sigma_min,
-        sigma_max = sigma_max,
-        device = device,
-    )
-    if main_proc:
-        n_params = sum(p.numel() for p in model.parameters())
-        print(f'NCSN++: {n_params:,} parameters')
+    train_net = score_model.model
+    optimizer = torch.optim.Adam(train_net.parameters(), lr=args.lr)
+    ema = EMA(raw_net.parameters(), decay=args.ema_decay)
 
-    # ---- Steps estimate ----
+    start_epoch = 0
+    step = 0
+    latest_ckpt = output_dir / "latest.pt"
+    if args.resume == "auto" and latest_ckpt.exists():
+        if main_proc:
+            print(f"Resuming from {latest_ckpt}")
+        start_epoch, step = load_checkpoint(latest_ckpt, raw_net, optimizer, ema, device)
+    elif args.resume.lower() not in {"auto", "none", ""}:
+        if main_proc:
+            print(f"Resuming from {args.resume}")
+        start_epoch, step = load_checkpoint(args.resume, raw_net, optimizer, ema, device)
+    barrier()
+
     effective_bs = args.batch_size * world_size
-    steps_per_epoch = max(1, int(np.ceil(global_size / effective_bs)))
-    total_steps = steps_per_epoch * args.epochs
-    if main_proc:
-        print(f'Plan: {args.epochs} epochs × {steps_per_epoch} steps '
-              f'= {total_steps:,} steps (per-GPU bs={args.batch_size}, effective bs={effective_bs})')
+    steps_per_epoch = len(loader)
+    planned_steps = steps_per_epoch * args.epochs
+    n_params = sum(param.numel() for param in raw_net.parameters())
 
-    # Library cadence is per-epoch; convert step-based flag if provided.
-    if args.ckpt_every_steps > 0:
-        checkpoints_every_epochs = max(1, round(args.ckpt_every_steps / steps_per_epoch))
-    else:
-        checkpoints_every_epochs = 10
-
-    # ---- Train ----
     if main_proc:
-        print('\nTraining...')
-        print(f'Checkpoint every {checkpoints_every_epochs} epochs '
-              f'(~{checkpoints_every_epochs * steps_per_epoch} steps), '
-              f'keep last {args.keep_last_n}, max_time={args.max_hours} h')
+        print(f"World size: {world_size} | rank: {rank} | local_rank: {local_rank}")
+        print(f"Using device: {device}")
+        if device.type == "cuda":
+            print(f"GPU: {torch.cuda.get_device_name(local_rank)}")
+        print(f"Dataset: {len(dataset)} images")
+        print(f"VE SDE: sigma_min={args.sigma_min:.1e}, sigma_max={sigma_max:.4f}")
+        print(f"NCSN++: {n_params:,} parameters")
+        print(
+            f"Plan: {args.epochs} epochs x {steps_per_epoch} steps = {planned_steps:,} "
+            f"steps (per-GPU bs={args.batch_size}, effective bs={effective_bs})"
+        )
+        print(f"Starting from epoch={start_epoch}, step={step}")
+
     t0 = time.time()
-    model.fit(
-        dataset,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        learning_rate=args.lr,
-        ema_decay=args.ema_decay,
-        warmup=args.warmup,
-        clip=args.clip,
-        max_time=args.max_hours,
-        checkpoints=checkpoints_every_epochs,
-        models_to_keep=args.keep_last_n,
-        checkpoints_directory=str(output_dir),
-        seed=args.seed + rank,
-        verbose=1 if (main_proc and args.log_every_steps > 0) else 0,
-    )
-    elapsed = time.time() - t0
-    if main_proc:
-        print(f'\nTraining complete in {elapsed/3600:.2f} h')
-        print(f'Checkpoints: {output_dir}')
+    running_loss = 0.0
+    running_count = 0
 
-    cleanup_distributed()
+    try:
+        for epoch in range(start_epoch, args.epochs):
+            sampler.set_epoch(epoch)
+            train_net.train()
+
+            for batch in loader:
+                should_stop = (time.time() - t0) / 3600.0 > args.max_hours
+                if distributed_any(should_stop, device):
+                    if main_proc:
+                        save_checkpoint(
+                            latest_ckpt,
+                            raw_net,
+                            optimizer,
+                            ema,
+                            epoch,
+                            step,
+                            args,
+                            score_model.hyperparameters,
+                        )
+                        print(f"Reached max_hours={args.max_hours}; saved {latest_ckpt}")
+                    barrier()
+                    return
+
+                x = batch.to(device, non_blocking=True)
+
+                optimizer.zero_grad(set_to_none=True)
+                loss = score_model.loss_fn(x)
+                loss.backward()
+
+                if args.clip > 0:
+                    torch.nn.utils.clip_grad_norm_(train_net.parameters(), max_norm=args.clip)
+
+                if args.warmup > 0 and step < args.warmup:
+                    lr_now = args.lr * min((step + 1) / args.warmup, 1.0)
+                    for group in optimizer.param_groups:
+                        group["lr"] = lr_now
+
+                optimizer.step()
+                ema.update(raw_net.parameters())
+
+                loss_value = loss.detach().item()
+                running_loss += loss_value
+                running_count += 1
+                step += 1
+
+                if args.log_every_steps > 0 and step % args.log_every_steps == 0:
+                    local_avg = running_loss / max(1, running_count)
+                    global_avg = reduce_mean(local_avg, device)
+                    running_loss = 0.0
+                    running_count = 0
+                    if main_proc:
+                        lr = optimizer.param_groups[0]["lr"]
+                        elapsed = (time.time() - t0) / 3600.0
+                        print(
+                            f"epoch={epoch} step={step} loss={global_avg:.4e} "
+                            f"lr={lr:.3e} elapsed={elapsed:.2f}h"
+                        )
+
+                if (
+                    main_proc
+                    and args.ckpt_every_steps > 0
+                    and step % args.ckpt_every_steps == 0
+                ):
+                    save_checkpoint(
+                        latest_ckpt,
+                        raw_net,
+                        optimizer,
+                        ema,
+                        epoch,
+                        step,
+                        args,
+                        score_model.hyperparameters,
+                    )
+                    save_checkpoint(
+                        output_dir / f"checkpoint_step_{step:08d}.pt",
+                        raw_net,
+                        optimizer,
+                        ema,
+                        epoch,
+                        step,
+                        args,
+                        score_model.hyperparameters,
+                    )
+                    prune_old_checkpoints(output_dir, args.keep_last_n)
+                    print(f"Saved checkpoint at step {step}")
+
+            barrier()
+
+        if main_proc:
+            save_checkpoint(
+                latest_ckpt,
+                raw_net,
+                optimizer,
+                ema,
+                args.epochs - 1,
+                step,
+                args,
+                score_model.hyperparameters,
+            )
+            print(f"Training complete. Saved {latest_ckpt}")
+    finally:
+        cleanup_distributed()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
