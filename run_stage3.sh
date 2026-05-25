@@ -10,7 +10,7 @@
 
 #! sbatch directives begin here ###############################
 #! Name of the job:
-#SBATCH -J probes_3test
+#SBATCH -J probes_3
 #! Which project should be charged (NB Wilkes2 projects end in '-GPU'):
 #SBATCH -A MPHIL-DIS-SL2-GPU
 #! How many whole nodes should be allocated?
@@ -22,7 +22,7 @@
 #! Note that the job submission script will enforce no more than 32 cpus per GPU.
 #SBATCH --gres=gpu:4
 #! How much wallclock time will be required?
-#SBATCH --time=20:00:00
+#SBATCH --time=04:00:00
 #! What types of email messages do you wish to receive?
 #SBATCH --mail-type=END,FAIL
 #! Uncomment this to prevent the job from being requeued (e.g. if
@@ -30,8 +30,8 @@
 ##SBATCH --no-requeue
 
 #! Output and error logs:
-#SBATCH -o slurm_logs/stage3_%j.out
-#SBATCH -e slurm_logs/stage3_%j.err
+#SBATCH -o slurm_logs/stage3_probes_%j.out
+#SBATCH -e slurm_logs/stage3_probes_%j.err
 
 #! Do not change:
 #SBATCH -p ampere
@@ -72,21 +72,23 @@ application="torchrun"
 #! Run options for the application:
 options="--standalone --nproc_per_node=4 train_prior.py \
     --data_dir ./data/gals_gband_norm \
-    --output_dir ./outputs/probes_diffusion_final \
+    --output_dir ./outputs/probes_final \
+    --epochs 2700 \
     --image_size 256 \
     --nf 128 \
     --ch_mult 1 1 2 2 2 2 2 \
-    --sigma_min 1e-4 \
-    --epochs 2700 \
     --batch_size 4 \
-    --lr 1e-4 \
-    --ema_decay 0.9999 \
-    --warmup 5000 \
-    --clip 1.0 \
-    --max_hours 35.0 \
     --ckpt_every_steps 1000 \
+    --n_subset -1 \
     --log_every_steps 50 \
     --keep_last_n 3 \
+    --max_hours 35 \
+    --clip 1.0 \
+    --lr 1e-4 \
+    --ema_decay 0.9999 \
+    --sigma_min 1e-4 \
+    --sigma_max 263.4 \
+    --resume auto \
     --seed 21"
 
 #! Work directory (i.e. where the job will run):

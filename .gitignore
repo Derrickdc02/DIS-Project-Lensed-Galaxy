@@ -5,3 +5,12 @@ slurm_logs/
 *.egg-info/
 __pycache__/
 *.py[cod]
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Weights & Biases local run data
+wandb/
+
+# SLURM machine files
+machine.file.*
