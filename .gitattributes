@@ -1,0 +1,2 @@
+# Notebooks contain large JSON outputs and dominate GitHub language stats.
+*.ipynb linguist-generated
