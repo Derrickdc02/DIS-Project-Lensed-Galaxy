@@ -70,7 +70,7 @@ source /home/yd388/rds/hpc-work/venv/dis_proj/bin/activate
 application="torchrun"
 
 #! Run options for the application:
-options="--standalone --nproc_per_node=4 train_prior.py \
+options="--standalone --nproc_per_node=4 src/train_prior.py \
     --data_dir ./data/gals_gband_norm \
     --output_dir ./outputs/probes_final \
     --epochs 2700 \

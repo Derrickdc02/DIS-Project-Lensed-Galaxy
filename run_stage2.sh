@@ -66,7 +66,7 @@ source /home/yd388/rds/hpc-work/venv/dis_proj/bin/activate
 application="python"
 
 #! Run options for the application:
-options="lowres_sample_train.py \
+options="src/lowres_sample_train.py \
     --data_dir ./data/gals_gband_norm \
     --output_dir ./outputs/probes_diffusion_subset \
     --image_size 128 \
