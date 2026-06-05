@@ -32,9 +32,9 @@ application="python"
 
 #! These options reproduce the notebooks/full_sample.ipynb full run.
 options="src/sample.py \
-    --output_dir ./outputs/probes_final \
+    --output_dir ./outputs/probes_final/sample128 \
     --data_dir ./data/gals_gband_norm \
-    --ckpt latest.pt \
+    --ckpt ../latest.pt \
     --steps 8000 \
     --n_post 160 \
     --chunk 32 \

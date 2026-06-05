@@ -24,6 +24,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from score_models import NCSNpp, ScoreModel
 
@@ -58,15 +59,28 @@ def load_model(ckpt_path, device):
 # --------------------------------------------------------------------------- #
 # Posterior sampler (Adam et al. 2022, convolved likelihood, eqs. 19, 20)
 # --------------------------------------------------------------------------- #
+def pixelate_image(img, factor=2):
+    """Average-pool image-plane outputs by factor, preserving leading dims."""
+    if factor == 1:
+        return img
+    if img.ndim == 2:
+        return F.avg_pool2d(img[None, None], kernel_size=factor).squeeze(0).squeeze(0)
+    if img.ndim == 3:
+        return F.avg_pool2d(img[:, None], kernel_size=factor).squeeze(1)
+    raise ValueError(f"Expected image shape (H, W) or (N, H, W), got {tuple(img.shape)}")
+
+
 @torch.no_grad()
-def posterior_sample(model, sim, y, sigma_y, steps=8000, n_samples=32):
+def posterior_sample(
+    model, sim, y, sigma_y, steps=8000, n_samples=32,
+    source_size=256, image_pool=2,
+):
     """Reverse-diffusion posterior sampler with a convolved Gaussian likelihood."""
     device = next(model.parameters()).device
-    H = W = y.shape[-1]
     sde = model.sde
 
     t_grid = torch.linspace(1.0, 1e-3, steps + 1, device=device)
-    x = sde.prior([n_samples, 1, H, W]).sample().to(device)
+    x = sde.prior([n_samples, 1, source_size, source_size]).sample().to(device)
 
     for i in range(steps):
         t_scalar = t_grid[i]
@@ -77,8 +91,9 @@ def posterior_sample(model, sim, y, sigma_y, steps=8000, n_samples=32):
 
         with torch.enable_grad():
             x_req = x.detach().requires_grad_(True)
-            preds = torch.stack([sim({"source": {"image": x_req[b, 0]}})
-                                 for b in range(n_samples)])
+            preds_256 = torch.stack([sim({"source": {"image": x_req[b, 0]}})
+                                     for b in range(n_samples)])
+            preds = pixelate_image(preds_256, image_pool)
             log_lik = -0.5 * ((y - preds) ** 2).sum() / var
             grad_ll = torch.autograd.grad(log_lik, x_req)[0]
 
@@ -151,17 +166,21 @@ def plot_mean_std(src, obs, post_mean, post_std, n_post, out_path):
     }
 
 
-def plot_grid(sim, post, src, obs, post_mean, post_std, noise_sigma, device, out_path):
+def plot_grid(
+    sim, post, src, obs, post_mean, post_std, noise_sigma, device, out_path,
+    image_pool=2,
+):
     """Source- and image-plane summary grid (mirrors the notebook's final cell)."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     with torch.no_grad():
-        A_post = torch.stack([
+        A_post_256 = torch.stack([
             sim({"source": {"image": post[i, 0].to(device)}})
             for i in range(post.shape[0])
         ]).cpu()
+        A_post = pixelate_image(A_post_256, image_pool)
     A_post_mean = A_post.mean(dim=0)
     A_post_std = A_post.std(dim=0)
 
@@ -350,7 +369,8 @@ def main():
         if device.type == "cuda":
             torch.cuda.manual_seed_all(args.seed)
         with torch.no_grad():
-            lensed = sim({"source": {"image": src}})
+            lensed_256 = sim({"source": {"image": src}})
+            lensed = pixelate_image(lensed_256, factor=2)
         obs = lensed + args.noise_sigma * torch.randn_like(lensed)
         atomic_save({"src": src.cpu(), "obs": obs.cpu(), "pick": args.pick,
                      "src_name": src_name, "noise_sigma": args.noise_sigma,
@@ -376,6 +396,8 @@ def main():
             sigma_y=args.noise_sigma,
             steps=args.steps,
             n_samples=args.chunk,
+            source_size=src.shape[-1],
+            image_pool=2,
         ).cpu()
         atomic_save(chunk, chunk_path)
         elapsed = time.time() - t0
@@ -402,7 +424,8 @@ def main():
     atomic_save(
         {"post": post, "src": src.cpu(), "obs": obs.cpu(),
          "pick": args.pick, "src_name": src_name,
-         "noise_sigma": args.noise_sigma, "steps": args.steps},
+         "noise_sigma": args.noise_sigma, "steps": args.steps,
+         "image_pool": 2},
         draws_path,
     )
     print(f"Saved {post.shape[0]} draws -> {draws_path}")
@@ -415,7 +438,7 @@ def main():
     )
     plot_grid(
         sim, post, src.cpu(), obs.cpu(), post_mean, post_std,
-        args.noise_sigma, device, grid_png,
+        args.noise_sigma, device, grid_png, image_pool=2,
     )
     print(f"Wrote figures -> {mean_std_png}, {grid_png}")
 
