@@ -8,7 +8,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:1
-#SBATCH --time=07:00:00
+#SBATCH --time=02:00:00
 #SBATCH --mail-type=END,FAIL
 ##SBATCH --no-requeue
 #SBATCH -o slurm_logs/sample_%j.out
@@ -32,12 +32,12 @@ application="python"
 
 #! These options reproduce the notebooks/full_sample.ipynb full run.
 options="src/sample.py \
-    --output_dir ./outputs/probes_final/sample128 \
+    --output_dir ./outputs/probes_final/sampletest1 \
     --data_dir ./data/gals_gband_norm \
     --ckpt ../latest.pt \
-    --steps 8000 \
-    --n_post 160 \
-    --chunk 32 \
+    --steps 2000 \
+    --n_post 32 \
+    --chunk 8 \
     --pick 15 \
     --noise_sigma 0.02 \
     --seed 21"

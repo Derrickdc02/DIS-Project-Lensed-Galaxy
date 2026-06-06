@@ -1,20 +1,10 @@
 """Posterior source reconstruction from a strong-lensing observation.
 
-Reproduces the sampling workflow from ``notebooks/full_sample.ipynb`` as a
-standalone script suitable for an HPC batch job:
-
-  1. Load the trained NCSN++ score-based prior (EMA weights from a
-     ``train_prior.py`` checkpoint, e.g. ``output_dir/latest.pt``).
-  2. Build the differentiable caustics forward model (SIE lens + Pixelated
-     source), matching the notebook's setup.
-  3. Pick a real PROBES galaxy as the ground-truth source, lens it, and add
-     Gaussian observation noise to make a mock observation ``y``.
-  4. Draw ``--n_post`` posterior samples ``x ~ p(x | y)`` in chunks of
-     ``--chunk`` using the convolved-likelihood sampler (Adam et al. 2022).
-  5. Save the draws and write diagnostic figures (posterior mean / std /
-     residual / z-score, plus a source- vs image-plane grid).
-
-Defaults reproduce the notebook's full run: 8000 steps, 160 draws, chunks of 32.
+Standalone HPC-batch version of notebooks/full_sample.ipynb: load a trained
+NCSN++ score prior, build the caustics SIE + external-shear forward model, make a
+mock observation from a real PROBES galaxy, and draw x ~ p(x | y) with the
+convolved-likelihood sampler (Adam et al. 2022); save the draws and diagnostic
+figures. Defaults reproduce the full run: 8000 steps, 160 draws, chunks of 32.
 """
 
 import argparse
@@ -28,14 +18,24 @@ import torch.nn.functional as F
 
 from score_models import NCSNpp, ScoreModel
 
-# sample.py lives in src/, so this imports src/lensing.py (the SIE + external
-# shear forward model) when run as ``python src/sample.py``.
-from lensing import build_lens_sim
+from lensing import build_lens_sim  # src/lensing.py: SIE + external-shear forward model
 
 
-# --------------------------------------------------------------------------- #
-# Model + forward operator
-# --------------------------------------------------------------------------- #
+# ---- Display scaling ----
+# preprocess.py maps flux -> [-1,1] via x = 2*clip(flux,0,A)/A - 1, so flux = A*(x+1)/2.
+# Adam et al. show intensity on a log scale; invert to flux for LogNorm (display only).
+FLUX_A = 5.5        # PROBES normalization constant (must match data/preprocess.py)
+FLUX_VMIN = 1e-2    # lower end of the log intensity colorbar, in flux units
+
+
+def to_display_flux(img, floor=1e-3):
+    """[-1,1] intensity -> PROBES flux [0, FLUX_A], floored >0 so LogNorm has no masked pixels."""
+    if isinstance(img, torch.Tensor):
+        return (FLUX_A * (img.detach().cpu() + 1.0) / 2.0).clamp(min=floor).numpy()
+    return np.clip(FLUX_A * (np.asarray(img) + 1.0) / 2.0, floor, None)
+
+
+# ---- Model + forward operator ----
 def load_model(ckpt_path, device):
     """Load the EMA score model from a train_prior.py checkpoint."""
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
@@ -56,9 +56,7 @@ def load_model(ckpt_path, device):
     return model, int(ckpt["step"])
 
 
-# --------------------------------------------------------------------------- #
-# Posterior sampler (Adam et al. 2022, convolved likelihood, eqs. 19, 20)
-# --------------------------------------------------------------------------- #
+# ---- Posterior sampler (Adam et al. 2022, convolved likelihood, eqs. 19, 20) ----
 def pixelate_image(img, factor=2):
     """Average-pool image-plane outputs by factor, preserving leading dims."""
     if factor == 1:
@@ -101,12 +99,10 @@ def posterior_sample(
         z = torch.randn_like(x)
         x = x + (g ** 2) * score_post * h + g * z * h.sqrt()
 
-    return x.clamp(-1, 1)
+    return x
 
 
-# --------------------------------------------------------------------------- #
-# Ground-truth source
-# --------------------------------------------------------------------------- #
+# ---- Ground-truth source ----
 def load_source(data_dir, pick, device):
     """Load one preprocessed PROBES image -> (H, W) float32 source in [-1, 1]."""
     src_files = sorted(glob.glob(str(Path(data_dir) / "*.npy")))
@@ -121,29 +117,30 @@ def load_source(data_dir, pick, device):
     return src, name
 
 
-# --------------------------------------------------------------------------- #
-# Diagnostics
-# --------------------------------------------------------------------------- #
+# ---- Diagnostics ----
 def plot_mean_std(src, obs, post_mean, post_std, n_post, out_path):
     """True | obs | mean | std | residual | z-score, with calibration numbers."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.colors import LogNorm
 
     residual = post_mean - src
     zscore = residual / post_std.clamp(min=1e-6)
 
+    # Intensity panels: physical flux on a log scale (Adam et al. convention).
+    flux_kw = dict(cmap="magma", norm=LogNorm(vmin=FLUX_VMIN, vmax=FLUX_A))
     panels = [
-        ("True source", src, dict(cmap="magma", vmin=-1, vmax=1)),
-        ("Observation", obs, dict(cmap="magma")),
-        (f"Posterior mean (N={n_post})", post_mean, dict(cmap="magma", vmin=-1, vmax=1)),
-        ("Posterior std", post_std, dict(cmap="viridis")),
-        ("Mean - True", residual, dict(cmap="RdBu_r", vmin=-0.5, vmax=0.5)),
-        ("z-score (resid / std)", zscore, dict(cmap="RdBu_r", vmin=-3, vmax=3)),
+        ("True source", to_display_flux(src), flux_kw),
+        ("Observation", to_display_flux(obs), flux_kw),
+        (f"Posterior mean (N={n_post})", to_display_flux(post_mean), flux_kw),
+        ("Posterior std", post_std.numpy(), dict(cmap="viridis")),
+        ("Mean - True", residual.numpy(), dict(cmap="RdBu_r", vmin=-0.5, vmax=0.5)),
+        ("z-score (resid / std)", zscore.numpy(), dict(cmap="RdBu_r", vmin=-3, vmax=3)),
     ]
     fig, axes = plt.subplots(1, 6, figsize=(22, 3.8))
     for ax, (title, img, kw) in zip(axes, panels):
-        h = ax.imshow(img.numpy(), origin="lower", **kw)
+        h = ax.imshow(img, origin="lower", **kw)
         ax.set_title(title, fontsize=11)
         ax.axis("off")
         fig.colorbar(h, ax=ax, fraction=0.046, pad=0.04)
@@ -174,6 +171,7 @@ def plot_grid(
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.colors import LogNorm
 
     with torch.no_grad():
         A_post_256 = torch.stack([
@@ -192,30 +190,29 @@ def plot_grid(
     src_resid = (src - post_mean) / noise_sigma
     img_resid = (obs - A_post_mean) / noise_sigma
 
-    int_img_vmax = max(obs.max().item(), A_post_mean.max().item())
-    int_img_vmin = obs.min().item()
     std_vmax = max(post_std.max().item(), A_post_std.max().item())
     res_vmax = 5.0
 
-    intensity_src_kw = dict(cmap="magma", vmin=-1.0, vmax=1.0, origin="lower")
-    intensity_img_kw = dict(cmap="magma", vmin=int_img_vmin, vmax=int_img_vmax, origin="lower")
+    # Both planes share one physical-flux log scale (Adam et al. intensity colorbar);
+    # surface brightness is conserved, so source and image plane are directly comparable.
+    intensity_kw = dict(cmap="magma", norm=LogNorm(vmin=FLUX_VMIN, vmax=FLUX_A), origin="lower")
     std_kw = dict(cmap="hot", vmin=0, vmax=std_vmax, origin="lower")
     res_kw = dict(cmap="RdBu_r", vmin=-res_vmax, vmax=res_vmax, origin="lower")
 
     fig, axes = plt.subplots(2, 6, figsize=(20, 6.6),
                              gridspec_kw={"wspace": 0.04, "hspace": 0.04})
 
-    axes[0, 0].imshow(src, **intensity_src_kw)
-    axes[0, 1].imshow(s1, **intensity_src_kw)
-    axes[0, 2].imshow(s2, **intensity_src_kw)
-    im_int = axes[0, 3].imshow(post_mean, **intensity_src_kw)
+    axes[0, 0].imshow(to_display_flux(src), **intensity_kw)
+    axes[0, 1].imshow(to_display_flux(s1), **intensity_kw)
+    axes[0, 2].imshow(to_display_flux(s2), **intensity_kw)
+    im_int = axes[0, 3].imshow(to_display_flux(post_mean), **intensity_kw)
     im_std = axes[0, 4].imshow(post_std, **std_kw)
     im_res = axes[0, 5].imshow(src_resid, **res_kw)
 
-    axes[1, 0].imshow(obs, **intensity_img_kw)
-    axes[1, 1].imshow(i1, **intensity_img_kw)
-    axes[1, 2].imshow(i2, **intensity_img_kw)
-    axes[1, 3].imshow(A_post_mean, **intensity_img_kw)
+    axes[1, 0].imshow(to_display_flux(obs), **intensity_kw)
+    axes[1, 1].imshow(to_display_flux(i1), **intensity_kw)
+    axes[1, 2].imshow(to_display_flux(i2), **intensity_kw)
+    axes[1, 3].imshow(to_display_flux(A_post_mean), **intensity_kw)
     axes[1, 4].imshow(A_post_std, **std_kw)
     axes[1, 5].imshow(img_resid, **res_kw)
 
@@ -240,9 +237,7 @@ def plot_grid(
     plt.close(fig)
 
 
-# --------------------------------------------------------------------------- #
-# Main
-# --------------------------------------------------------------------------- #
+# ---- Main ----
 def build_arg_parser():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--output_dir", type=str, default="./outputs/probes_final",
@@ -262,10 +257,8 @@ def build_arg_parser():
     p.add_argument("--pick", type=int, default=15, help="index into sorted data_dir/*.npy")
     p.add_argument("--noise_sigma", type=float, default=0.02, help="observation noise std")
 
-    # The forward-model geometry (SIE + external shear, image size, redshifts,
-    # Einstein radius, ...) is fixed for this experiment, so it lives in
-    # src/lensing.py's build_lens_sim defaults rather than as CLI flags. Edit
-    # the build_lens_sim(...) call below if you ever need to vary it.
+    # Forward-model geometry is fixed in src/lensing.py's build_lens_sim defaults,
+    # not exposed as CLI flags. Edit the build_lens_sim(...) call below to vary it.
 
     # Weights & Biases (optional; off unless --wandb is passed)
     p.add_argument("--wandb", action="store_true",
@@ -280,11 +273,7 @@ def build_arg_parser():
 
 
 def atomic_save(obj, path):
-    """Save a torch object via a temp file, then atomically move it into place.
-
-    Keeps chunk/observation files from being left half-written if the job is
-    killed (e.g. by the SLURM walltime) mid-save.
-    """
+    """Save via a temp file then atomic rename, so a walltime kill can't leave a half-written file."""
     tmp = path.with_suffix(path.suffix + ".tmp")
     torch.save(obj, tmp)
     tmp.replace(path)
@@ -336,15 +325,11 @@ def main():
     if run is not None:
         run.config.update({"ckpt_step": ckpt_step}, allow_val_change=True)
 
-    # Forward model geometry comes from src/lensing.py defaults:
-    # SIE (q=0.7, phi=pi/6, Rein=1.2) + external shear gamma=(0.03, 0.04).
+    # Geometry from src/lensing.py defaults: SIE (q=0.7, phi=pi/6, Rein=1.2) + shear (0.03, 0.04).
     sim = build_lens_sim(device=device)
 
-    # --- Resumable observation -------------------------------------------- #
-    # Every chunk must be drawn against the *same* noisy observation, so persist
-    # it and reload on resume rather than regenerating (which would redraw the
-    # noise). A settings mismatch means the chunks on disk are for a different
-    # experiment, so we refuse to mix them.
+    # --- Resumable observation: persist y so every chunk (and any resume) uses the
+    # same noisy observation; refuse to mix chunks made with different settings. ---
     chunks_dir = samples_dir / "chunks"
     chunks_dir.mkdir(parents=True, exist_ok=True)
     obs_path = samples_dir / "observation.pt"
@@ -376,9 +361,8 @@ def main():
                      "src_name": src_name, "noise_sigma": args.noise_sigma,
                      "seed": args.seed}, obs_path)
 
-    # --- Posterior draws, one resumable chunk at a time ------------------- #
-    # Each chunk is seeded independently (args.seed + c), so a resumed job
-    # reproduces exactly the chunks a single uninterrupted run would have made.
+    # --- Posterior draws, one resumable chunk at a time (chunk c seeded args.seed+c,
+    # so a resumed job reproduces an uninterrupted run exactly). ---
     print(f"\nDrawing {args.n_post} posterior samples "
           f"({n_chunks} x {args.chunk}) at {args.steps} steps...")
     t0 = time.time()
