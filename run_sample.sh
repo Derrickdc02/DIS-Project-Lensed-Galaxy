@@ -3,12 +3,12 @@
 #! Convolved-likelihood source reconstruction from a lensed observation
 #! (single A100; 160 draws x 8000 steps).
 
-#SBATCH -J probes_sample
+#SBATCH -J probes_srcfov
 #SBATCH -A MPHIL-DIS-SL2-GPU
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:1
-#SBATCH --time=02:00:00
+#SBATCH --time=08:00:00
 #SBATCH --mail-type=END,FAIL
 ##SBATCH --no-requeue
 #SBATCH -o slurm_logs/sample_%j.out
@@ -32,21 +32,15 @@ application="python"
 
 #! These options reproduce the notebooks/full_sample.ipynb full run.
 options="src/sample.py \
-    --output_dir ./outputs/probes_final/sampletest1 \
+    --output_dir ./outputs/probes_final/sample_srcfov \
     --data_dir ./data/gals_gband_norm \
     --ckpt ../latest.pt \
-    --steps 2000 \
-    --n_post 32 \
-    --chunk 8 \
+    --steps 8000 \
+    --n_post 160 \
+    --chunk 32 \
     --pick 15 \
     --noise_sigma 0.02 \
     --seed 21"
-
-#! W&B (optional, offline by default — compute nodes have no internet).
-#! To enable, append to options above:
-#!     --wandb --wandb_run_name probes_post_pick15
-#! The job prints the exact `wandb sync wandb/offline-run-*` command to run
-#! from a login node afterwards.
 
 workdir="$SLURM_SUBMIT_DIR"
 export OMP_NUM_THREADS=1

@@ -27,7 +27,8 @@ def build_lens_sim(
     cosmology=None,
     *,
     image_size: int = 256,
-    pixelscale: float = 0.04,   # arcsec/pixel (HST-like)
+    pixelscale: float = 0.04,   # arcsec/pixel (HST-like), image plane
+    source_pixelscale: float | None = None,  # source plane; None -> = pixelscale
     z_l: float = 0.5,
     z_s: float = 1.5,
     # --- SIE (main lens galaxy) ---
@@ -48,8 +49,12 @@ def build_lens_sim(
     cosmology
         A caustics cosmology; defaults to ``FlatLambdaCDM`` if None.
     image_size, pixelscale
-        Grid side length (pixels) and angular scale (arcsec/pixel). Field of
-        view is ``image_size * pixelscale`` arcsec.
+        Grid side length (pixels) and image-plane angular scale (arcsec/pixel).
+        Image field of view is ``image_size * pixelscale`` arcsec.
+    source_pixelscale
+        Source-plane angular scale (arcsec/pixel). Defaults to ``pixelscale``.
+        Set it smaller so the source grid fits inside the lens footprint
+        (no unconstrained border); ~0.028 fully covers the default geometry.
     z_l, z_s
         Lens and source redshifts (source must be behind the lens).
     x0, y0, q, phi, Rein
@@ -84,9 +89,11 @@ def build_lens_sim(
         z_l=z_l, z_s=z_s,
         lenses=[sie, shear],
     )
+    if source_pixelscale is None:
+        source_pixelscale = pixelscale
     source = caustics.Pixelated(
         name="source", x0=0.0, y0=0.0,
-        pixelscale=pixelscale, shape=(image_size, image_size),
+        pixelscale=source_pixelscale, shape=(image_size, image_size),
     )
     sim = caustics.LensSource(
         lens=lens, source=source,

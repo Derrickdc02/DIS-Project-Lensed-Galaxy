@@ -68,6 +68,13 @@ def pixelate_image(img, factor=2):
     raise ValueError(f"Expected image shape (H, W) or (N, H, W), got {tuple(img.shape)}")
 
 
+def lens_forward(sim, x):
+    """Lens source image x. The shift makes out-of-FOV rays (which source_pixelscale
+    leaves outside the source grid) map to -1 = empty sky, not caustics' 0-pad =
+    mid-flux. In-bounds is unchanged since the interpolation is linear in x."""
+    return sim({"source": {"image": x + 1.0}}) - 1.0
+
+
 @torch.no_grad()
 def posterior_sample(
     model, sim, y, sigma_y, steps=8000, n_samples=32,
@@ -89,7 +96,7 @@ def posterior_sample(
 
         with torch.enable_grad():
             x_req = x.detach().requires_grad_(True)
-            preds_256 = torch.stack([sim({"source": {"image": x_req[b, 0]}})
+            preds_256 = torch.stack([lens_forward(sim, x_req[b, 0])
                                      for b in range(n_samples)])
             preds = pixelate_image(preds_256, image_pool)
             log_lik = -0.5 * ((y - preds) ** 2).sum() / var
@@ -156,12 +163,6 @@ def plot_mean_std(src, obs, post_mean, post_std, n_post, out_path):
     print(f"Mean |z-score|                    = {mean_abs_z:.3f}   "
           f"(well-calibrated Gaussian -> sqrt(2/pi) ~ 0.798)")
 
-    return {
-        "sample/rmse_mean": rmse_mean,
-        "sample/mean_std": mean_std,
-        "sample/mean_abs_z": mean_abs_z,
-    }
-
 
 def plot_grid(
     sim, post, src, obs, post_mean, post_std, noise_sigma, device, out_path,
@@ -175,7 +176,7 @@ def plot_grid(
 
     with torch.no_grad():
         A_post_256 = torch.stack([
-            sim({"source": {"image": post[i, 0].to(device)}})
+            lens_forward(sim, post[i, 0].to(device))
             for i in range(post.shape[0])
         ]).cpu()
         A_post = pixelate_image(A_post_256, image_pool)
@@ -259,16 +260,6 @@ def build_arg_parser():
 
     # Forward-model geometry is fixed in src/lensing.py's build_lens_sim defaults,
     # not exposed as CLI flags. Edit the build_lens_sim(...) call below to vary it.
-
-    # Weights & Biases (optional; off unless --wandb is passed)
-    p.add_argument("--wandb", action="store_true",
-                   help="log this sampling run to Weights & Biases")
-    p.add_argument("--wandb_project", type=str, default="lensed-galaxy-prior")
-    p.add_argument("--wandb_run_name", type=str, default=None)
-    p.add_argument("--wandb_mode", type=str, default="offline",
-                   choices=["online", "offline", "disabled"],
-                   help="default 'offline': HPC compute nodes have no internet; "
-                        "sync the run from a login node afterwards")
     return p
 
 
@@ -277,27 +268,6 @@ def atomic_save(obj, path):
     tmp = path.with_suffix(path.suffix + ".tmp")
     torch.save(obj, tmp)
     tmp.replace(path)
-
-
-def init_wandb(args, n_chunks):
-    """Start a W&B run for this sampling job, or return None if --wandb is off."""
-    if not args.wandb:
-        return None
-    import wandb
-
-    run = wandb.init(
-        project=args.wandb_project,
-        name=args.wandb_run_name,
-        mode=args.wandb_mode,
-        job_type="sampling",
-        config={**vars(args), "n_chunks": n_chunks},
-    )
-    # x-axis = chunk index for the per-chunk progress metrics.
-    wandb.define_metric("sample/chunk")
-    wandb.define_metric("sample/chunk_*", step_metric="sample/chunk")
-    wandb.define_metric("sample/elapsed_sec", step_metric="sample/chunk")
-    wandb.define_metric("sample/draws_done", step_metric="sample/chunk")
-    return run
 
 
 def main():
@@ -319,14 +289,11 @@ def main():
     samples_dir = output_dir / "samples"
     samples_dir.mkdir(parents=True, exist_ok=True)
 
-    run = init_wandb(args, n_chunks)
-
-    model, ckpt_step = load_model(ckpt_path, device)
-    if run is not None:
-        run.config.update({"ckpt_step": ckpt_step}, allow_val_change=True)
+    model, _ = load_model(ckpt_path, device)
 
     # Geometry from src/lensing.py defaults: SIE (q=0.7, phi=pi/6, Rein=1.2) + shear (0.03, 0.04).
-    sim = build_lens_sim(device=device)
+    # source_pixelscale=0.028 shrinks the source FOV inside the lens footprint -> uniform posterior std.
+    sim = build_lens_sim(device=device, source_pixelscale=0.028)
 
     # --- Resumable observation: persist y so every chunk (and any resume) uses the
     # same noisy observation; refuse to mix chunks made with different settings. ---
@@ -354,7 +321,7 @@ def main():
         if device.type == "cuda":
             torch.cuda.manual_seed_all(args.seed)
         with torch.no_grad():
-            lensed_256 = sim({"source": {"image": src}})
+            lensed_256 = lens_forward(sim, src)
             lensed = pixelate_image(lensed_256, factor=2)
         obs = lensed + args.noise_sigma * torch.randn_like(lensed)
         atomic_save({"src": src.cpu(), "obs": obs.cpu(), "pick": args.pick,
@@ -386,14 +353,6 @@ def main():
         atomic_save(chunk, chunk_path)
         elapsed = time.time() - t0
         print(f"  chunk {c + 1}/{n_chunks} done -> {chunk_path.name} ({elapsed:.1f}s elapsed)")
-        if run is not None:
-            run.log({
-                "sample/chunk": c + 1,
-                "sample/chunk_mean": chunk.mean().item(),
-                "sample/chunk_std": chunk.std().item(),
-                "sample/elapsed_sec": elapsed,
-                "sample/draws_done": (c + 1) * args.chunk,
-            })
 
     # --- Assemble all chunks (freshly drawn + previously saved) ----------- #
     post = torch.cat(
@@ -417,7 +376,7 @@ def main():
     # Diagnostics
     mean_std_png = samples_dir / "posterior_mean_std.png"
     grid_png = samples_dir / "posterior_grid.png"
-    metrics = plot_mean_std(
+    plot_mean_std(
         src.cpu(), obs.cpu(), post_mean, post_std, args.n_post, mean_std_png,
     )
     plot_grid(
@@ -425,25 +384,6 @@ def main():
         args.noise_sigma, device, grid_png, image_pool=2,
     )
     print(f"Wrote figures -> {mean_std_png}, {grid_png}")
-
-    if run is not None:
-        import wandb
-        run.summary.update({
-            **metrics,
-            "sample/total_sec": time.time() - t0,
-            "sample/n_post": args.n_post,
-            "sample/ckpt_step": ckpt_step,
-        })
-        run.log({
-            "posterior_mean_std": wandb.Image(str(mean_std_png)),
-            "posterior_grid": wandb.Image(str(grid_png)),
-        })
-        offline_dir = Path(run.dir).parent if args.wandb_mode == "offline" else None
-        run.finish()
-        print(f"Logged sampling run to W&B project '{args.wandb_project}'.")
-        if offline_dir is not None:
-            print(f"Offline run — sync it from a login node with:\n"
-                  f"    wandb sync {offline_dir}")
 
 
 if __name__ == "__main__":
