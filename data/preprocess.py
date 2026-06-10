@@ -14,7 +14,7 @@ OUT_DIR = "./gals_gband_norm"
 # Article-aligned settings
 BAND = "g"          # The strong-lensing paper shows g-band results
 CROP_SIZE = 256     # 256 x 256 images
-A = 5.5             # PROBES upper truncation / normalization constant
+A = 5.5             # PROBES upper truncation / normalization constant (= FLUX_A in src/sample.py)
 LOWER = 0.0         # lower truncation
 MIN_FILESIZE = 5000 # same practical empty-file check
 

@@ -18,7 +18,7 @@ import torch.nn.functional as F
 
 from score_models import NCSNpp, ScoreModel
 
-from lensing import build_lens_sim  # src/lensing.py: SIE + external-shear forward model
+from lensing import build_lens_sim, SOURCE_PIXELSCALE  # src/lensing.py: SIE + external-shear forward model
 
 
 # ---- Display scaling ----
@@ -292,8 +292,7 @@ def main():
     model, _ = load_model(ckpt_path, device)
 
     # Geometry from src/lensing.py defaults: SIE (q=0.7, phi=pi/6, Rein=1.2) + shear (0.03, 0.04).
-    # source_pixelscale=0.028 shrinks the source FOV inside the lens footprint -> uniform posterior std.
-    sim = build_lens_sim(device=device, source_pixelscale=0.028)
+    sim = build_lens_sim(device=device, source_pixelscale=SOURCE_PIXELSCALE)
 
     # --- Resumable observation: persist y so every chunk (and any resume) uses the
     # same noisy observation; refuse to mix chunks made with different settings. ---

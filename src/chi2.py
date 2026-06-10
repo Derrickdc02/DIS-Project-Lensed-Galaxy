@@ -10,17 +10,9 @@ import argparse
 from pathlib import Path
 
 import torch
-import torch.nn.functional as F
 
-from lensing import build_lens_sim
-
-
-def lens_forward(sim, x):
-    return sim({"source": {"image": x + 1.0}}) - 1.0
-
-
-def pool(img, factor=2):
-    return F.avg_pool2d(img[None, None], factor).squeeze(0).squeeze(0)
+from lensing import build_lens_sim, SOURCE_PIXELSCALE
+from sample import lens_forward, pixelate_image
 
 
 def main():
@@ -33,16 +25,17 @@ def main():
                    map_location=device, weights_only=False)
     post, obs, sigma = d["post"].to(device), d["obs"].to(device), d["noise_sigma"]
     src, N = d["src"].to(device), obs.numel()
-    sim = build_lens_sim(device=device, source_pixelscale=0.028)
+    pool = d.get("image_pool", 2)
+    sim = build_lens_sim(device=device, source_pixelscale=SOURCE_PIXELSCALE)
 
     chi2 = torch.empty(post.shape[0])
     with torch.no_grad():
-        chi2_true = (((obs - pool(lens_forward(sim, src.squeeze()), 2)) / sigma)
-                     ** 2).sum().item() / N
+        chi2_true = (((obs - pixelate_image(lens_forward(sim, src.squeeze()), pool))
+                      / sigma) ** 2).sum().item() / N
         for i in range(post.shape[0]):
-            pred = pool(lens_forward(sim, post[i, 0]), 2)
+            pred = pixelate_image(lens_forward(sim, post[i, 0]), pool)
             chi2[i] = (((obs - pred) / sigma) ** 2).sum() / N
-        mean_pred = pool(lens_forward(sim, post.mean(0)[0]), 2)
+        mean_pred = pixelate_image(lens_forward(sim, post.mean(0)[0]), pool)
         chi2_mean = (((obs - mean_pred) / sigma) ** 2).sum().item() / N
 
     print(f"draws={post.shape[0]}  N={N}  sigma_y={sigma}")

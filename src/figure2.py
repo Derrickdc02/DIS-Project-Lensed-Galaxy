@@ -9,13 +9,14 @@ Cheap (one draw per noise level) -> good interactive-GPU job.
 Usage: python src/figure2.py --ckpt ../latest.pt
 """
 import argparse
+from pathlib import Path
 
 import numpy as np
 import torch
 
 from sample import (load_model, posterior_sample, lens_forward, pixelate_image,
                     to_display_flux, FLUX_A, FLUX_VMIN)
-from lensing import build_lens_sim
+from lensing import build_lens_sim, SOURCE_PIXELSCALE
 
 
 def make_ood_source(size=256, char="7", img_path=None):
@@ -113,14 +114,13 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     noises = [float(s) for s in args.noises.split(",")]
     model, _ = load_model(args.ckpt, device)
-    sim = build_lens_sim(device=device, source_pixelscale=0.028)
+    sim = build_lens_sim(device=device, source_pixelscale=SOURCE_PIXELSCALE)
 
     src = make_ood_source(img_path=args.source_img).to(device)
     with torch.no_grad():
         clean = pixelate_image(lens_forward(sim, src), factor=2)   # (128,128)
 
     # Each level is checkpointed; re-running skips finished ones (resume after a wall).
-    from pathlib import Path
     parts = Path(args.out).with_suffix(".parts"); parts.mkdir(parents=True, exist_ok=True)
     samples, obs_list = [], []
     for k, s in enumerate(noises):

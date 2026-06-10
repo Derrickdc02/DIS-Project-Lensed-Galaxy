@@ -13,6 +13,11 @@ import math
 
 import caustics
 
+# Source-plane scale (arcsec/pixel) used across sampling/analysis scripts: shrinks
+# the source FOV inside the lens footprint -> no unconstrained border, uniform
+# posterior std. Fully covers the default geometry below.
+SOURCE_PIXELSCALE = 0.028
+
 
 def shear_cartesian(gamma: float, phi_gamma: float) -> tuple[float, float]:
     """Convert shear magnitude + angle (rad) to caustics cartesian components.
