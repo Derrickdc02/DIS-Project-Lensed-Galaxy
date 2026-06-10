@@ -1,4 +1,5 @@
 /data/raws/*
+/data/ood/
 outputs/
 slurm_logs/
 .venv/
