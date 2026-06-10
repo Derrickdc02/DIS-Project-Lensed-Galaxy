@@ -26,7 +26,8 @@ mpi_tasks_per_node=$(echo "$SLURM_TASKS_PER_NODE" | sed -e  's/^\([0-9][0-9]*\).
 . /etc/profile.d/modules.sh
 module purge
 module load rhel8/default-amp
-source /home/yd388/rds/hpc-work/venv/dis_proj/bin/activate
+VENV="${VENV:-$HOME/rds/hpc-work/venv/dis_proj}"
+source "$VENV/bin/activate"
 
 application="python"
 

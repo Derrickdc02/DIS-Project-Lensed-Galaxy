@@ -57,7 +57,8 @@ module load rhel8/default-amp              # REQUIRED - loads the basic environm
 
 #! Insert additional module load commands after this line if needed:
 #! Activate your Python environment — EDIT THIS LINE to match your setup:
-source /home/yd388/rds/hpc-work/venv/dis_proj/bin/activate
+VENV="${VENV:-$HOME/rds/hpc-work/venv/dis_proj}"
+source "$VENV/bin/activate"
 #! Or if using conda:
 #! source /path/to/miniconda3/etc/profile.d/conda.sh
 #! conda activate probes
