@@ -19,7 +19,7 @@ from sample import (load_model, posterior_sample, lens_forward, pixelate_image,
 from lensing import build_lens_sim, SOURCE_PIXELSCALE
 
 
-def make_ood_source(size=256, char="7", img_path=None):
+def make_ood_source(size: int = 256, char: str = "7", img_path: str | None = None) -> torch.Tensor:
     """Build a [-1,1] OOD source (background -1, bright +1).
 
     img_path given -> load image, grayscale, resize. Else render `char`.
@@ -46,7 +46,7 @@ def make_ood_source(size=256, char="7", img_path=None):
     return torch.from_numpy(2.0 * buf[::-1].copy() - 1.0)   # (size, size) in [-1,1]
 
 
-def render_figure(src, clean, samples, obs_list, noises, out):
+def render_figure(src, clean, samples, obs_list, noises: list[float], out: str) -> None:
     """Paper-style filmstrip: row0 = source/samples, row1 = clean/noisy obs."""
     import matplotlib
     matplotlib.use("Agg")

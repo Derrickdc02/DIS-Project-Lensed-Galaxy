@@ -46,7 +46,7 @@ def build_lens_sim(
     gamma_1: float = 0.03,
     gamma_2: float = 0.04,      # (0.03, 0.04) -> |gamma| = 0.05 at ~26.6 deg
     device=None,
-):
+) -> caustics.LensSource:
     """Build a differentiable SIE + external-shear lensing simulator.
 
     Parameters

@@ -28,7 +28,7 @@ FLUX_A = 5.5        # PROBES normalization constant (must match data/preprocess.
 FLUX_VMIN = 1e-2    # lower end of the log intensity colorbar, in flux units
 
 
-def to_display_flux(img, floor=1e-3):
+def to_display_flux(img: torch.Tensor | np.ndarray, floor: float = 1e-3) -> np.ndarray:
     """[-1,1] intensity -> PROBES flux [0, FLUX_A], floored >0 so LogNorm has no masked pixels."""
     if isinstance(img, torch.Tensor):
         return (FLUX_A * (img.detach().cpu() + 1.0) / 2.0).clamp(min=floor).numpy()
@@ -36,7 +36,7 @@ def to_display_flux(img, floor=1e-3):
 
 
 # ---- Model + forward operator ----
-def load_model(ckpt_path, device):
+def load_model(ckpt_path: str | Path, device: torch.device) -> tuple[ScoreModel, int]:
     """Load the EMA score model from a train_prior.py checkpoint."""
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     hp = ckpt["score_model_hyperparameters"]
@@ -57,7 +57,7 @@ def load_model(ckpt_path, device):
 
 
 # ---- Posterior sampler (Adam et al. 2022, convolved likelihood, eqs. 19, 20) ----
-def pixelate_image(img, factor=2):
+def pixelate_image(img: torch.Tensor, factor: int = 2) -> torch.Tensor:
     """Average-pool image-plane outputs by factor, preserving leading dims."""
     if factor == 1:
         return img
@@ -68,7 +68,7 @@ def pixelate_image(img, factor=2):
     raise ValueError(f"Expected image shape (H, W) or (N, H, W), got {tuple(img.shape)}")
 
 
-def lens_forward(sim, x):
+def lens_forward(sim, x: torch.Tensor) -> torch.Tensor:
     """Lens source image x. The shift makes out-of-FOV rays (which source_pixelscale
     leaves outside the source grid) map to -1 = empty sky, not caustics' 0-pad =
     mid-flux. In-bounds is unchanged since the interpolation is linear in x."""
@@ -77,9 +77,10 @@ def lens_forward(sim, x):
 
 @torch.no_grad()
 def posterior_sample(
-    model, sim, y, sigma_y, steps=8000, n_samples=32,
-    source_size=256, image_pool=2,
-):
+    model: ScoreModel, sim, y: torch.Tensor, sigma_y: float,
+    steps: int = 8000, n_samples: int = 32,
+    source_size: int = 256, image_pool: int = 2,
+) -> torch.Tensor:
     """Reverse-diffusion posterior sampler with a convolved Gaussian likelihood."""
     device = next(model.parameters()).device
     sde = model.sde
@@ -110,7 +111,7 @@ def posterior_sample(
 
 
 # ---- Ground-truth source ----
-def load_source(data_dir, pick, device):
+def load_source(data_dir: str | Path, pick: int, device: torch.device) -> tuple[torch.Tensor, str]:
     """Load one preprocessed PROBES image -> (H, W) float32 source in [-1, 1]."""
     src_files = sorted(glob.glob(str(Path(data_dir) / "*.npy")))
     assert src_files, f"No .npy files found in {data_dir}"
@@ -125,7 +126,7 @@ def load_source(data_dir, pick, device):
 
 
 # ---- Diagnostics ----
-def plot_mean_std(src, obs, post_mean, post_std, n_post, out_path):
+def plot_mean_std(src, obs, post_mean, post_std, n_post: int, out_path: Path) -> None:
     """True | obs | mean | std | residual | z-score, with calibration numbers."""
     import matplotlib
     matplotlib.use("Agg")
@@ -165,9 +166,9 @@ def plot_mean_std(src, obs, post_mean, post_std, n_post, out_path):
 
 
 def plot_grid(
-    sim, post, src, obs, post_mean, post_std, noise_sigma, device, out_path,
-    image_pool=2,
-):
+    sim, post, src, obs, post_mean, post_std, noise_sigma: float,
+    device: torch.device, out_path: Path, image_pool: int = 2,
+) -> None:
     """Source- and image-plane summary grid (mirrors the notebook's final cell)."""
     import matplotlib
     matplotlib.use("Agg")
@@ -239,7 +240,7 @@ def plot_grid(
 
 
 # ---- Main ----
-def build_arg_parser():
+def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--output_dir", type=str, default="./outputs/probes_final",
                    help="train_prior.py output dir; checkpoint + samples live here")
@@ -263,7 +264,7 @@ def build_arg_parser():
     return p
 
 
-def atomic_save(obj, path):
+def atomic_save(obj, path: Path) -> None:
     """Save via a temp file then atomic rename, so a walltime kill can't leave a half-written file."""
     tmp = path.with_suffix(path.suffix + ".tmp")
     torch.save(obj, tmp)
