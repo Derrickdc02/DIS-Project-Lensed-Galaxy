@@ -18,8 +18,6 @@ A = 5.5             # PROBES upper truncation / normalization constant (= FLUX_A
 LOWER = 0.0         # lower truncation
 MIN_FILESIZE = 5000 # same practical empty-file check
 
-os.makedirs(OUT_DIR, exist_ok=True)
-
 
 def check_for_corruption(ar: np.ndarray) -> bool:
     """
@@ -90,6 +88,7 @@ def process_one_fits(fi: str) -> np.ndarray:
 
 
 def main():
+    os.makedirs(OUT_DIR, exist_ok=True)
     pattern = join(RAW_DIR, f"*_{BAND}.fits")
     files = sorted(glob(pattern))
 
