@@ -73,14 +73,14 @@ def build_lens_sim(
     if cosmology is None:
         cosmology = caustics.FlatLambdaCDM(name="cosmo")
 
+    # z_l/z_s live only on the SinglePlane below; the sub-lenses inherit them.
+    # (Setting them here too triggers caustics' "static redshift overwritten" warning.)
     sie = caustics.SIE(
         cosmology=cosmology, name="sie",
-        z_l=z_l, z_s=z_s,
         x0=x0, y0=y0, q=q, phi=phi, Rein=Rein,
     )
     shear = caustics.ExternalShear(
         cosmology=cosmology, name="shear",
-        z_l=z_l, z_s=z_s,
         x0=x0, y0=y0,
         gamma_1=gamma_1, gamma_2=gamma_2,
     )
