@@ -23,6 +23,7 @@ notebooks = [
     "ipykernel>=6.29",
     "jupyterlab>=4.0",
     "matplotlib>=3.8",
+    "pqm>=0.6",
 ]
 dev = [
     "pytest>=8.0",

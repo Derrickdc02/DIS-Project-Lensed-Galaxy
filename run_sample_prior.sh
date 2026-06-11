@@ -1,21 +1,21 @@
 #!/bin/bash
-#! SLURM job script for Wilkes3 — posterior sampling
-#! Convolved-likelihood source reconstruction from a lensed observation
-#! (single A100; 160 draws x 8000 steps).
+#! SLURM job script for Wilkes3 — unconditional prior sampling
+#! Draws x ~ p(x) from the trained NCSN++ score prior for the PQMass check
+#! (single A100; 1000 draws x 1000 steps).
 
-#SBATCH -J probes_pick70
+#SBATCH -J probes_prior
 #SBATCH -A MPHIL-DIS-SL2-GPU
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:1
-#SBATCH --time=07:00:00
+#SBATCH --time=12:00:00
 #SBATCH --mail-type=END,FAIL
 ##SBATCH --no-requeue
-#SBATCH -o slurm_logs/sample_%j.out
-#SBATCH -e slurm_logs/sample_%j.err
+#SBATCH -o slurm_logs/sample_prior_%j.out
+#SBATCH -e slurm_logs/sample_prior_%j.err
 #SBATCH -p ampere
 
-#! sample.py checkpoints each chunk to outputs/.../samples/chunks/ as it
+#! sample_prior.py checkpoints each chunk to outputs/.../prior_check/chunks/ as it
 #! finishes, so if the job hits the walltime before all chunks are done, just
 #! resubmit this same script — completed chunks are skipped and it resumes.
 
@@ -31,16 +31,13 @@ source "$VENV/bin/activate"
 
 application="python"
 
-#! These options reproduce the notebooks/full_sample.ipynb full run.
-options="src/sample.py \
-    --output_dir ./outputs/probes_final/sample_pick70 \
-    --data_dir ./data/gals_gband_norm \
+options="src/sample_prior.py \
+    --output_dir ./outputs/probes_final/prior_check \
     --ckpt ../latest.pt \
-    --steps 8000 \
-    --n_post 160 \
-    --chunk 32 \
-    --pick 70 \
-    --noise_sigma 0.02 \
+    --n_samples 1000 \
+    --chunk 50 \
+    --steps 4000 \
+    --image_size 256 \
     --seed 21"
 
 workdir="$SLURM_SUBMIT_DIR"
