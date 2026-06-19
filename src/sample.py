@@ -257,7 +257,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     # Observation
     p.add_argument("--pick", type=int, default=15, help="index into sorted data_dir/*.npy")
-    p.add_argument("--noise_sigma", type=float, default=0.02, help="observation noise std")
+    p.add_argument("--noise_sigma", type=float, default=0.01, help="observation noise std (10^-2, Adam et al. 2022)")
 
     # Forward-model geometry is fixed in src/lensing.py's build_lens_sim defaults,
     # not exposed as CLI flags. Edit the build_lens_sim(...) call below to vary it.
