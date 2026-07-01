@@ -1,5 +1,6 @@
 /data/raws/*
 /data/ood/
+/data/gals_gband_norm/
 outputs/
 slurm_logs/
 .venv/
