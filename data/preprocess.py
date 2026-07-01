@@ -21,16 +21,16 @@ MIN_FILESIZE = 5000 # same practical empty-file check
 
 def check_for_corruption(ar: np.ndarray) -> bool:
     """
-    Practical data-quality check inherited from astroddpm.
-    Returns True if the image should be skipped.
+    Data-quality gate: return True when an image should be discarded.
 
-    Criteria:
-    1. contains NaN or inf
-    2. more than 30% of pixels are exactly zero
+    Reject an image if it is not finite everywhere (contains any NaN or Inf) or
+    if empty pixels dominate the frame (more than 30% of pixels equal to zero).
+    This applies the standard PROBES quality cut described in Smith et al.
     """
-    nanned = np.any(~np.isfinite(ar))
-    zeroed = np.sum(ar == 0) > (ar.size * 0.3)
-    return bool(nanned or zeroed)
+    if not np.isfinite(ar).all():
+        return True
+    zero_fraction = np.count_nonzero(ar == 0) / ar.size
+    return zero_fraction > 0.30
 
 
 def center_crop(ar: np.ndarray, crop_size: int = 256) -> np.ndarray:
