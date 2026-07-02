@@ -39,6 +39,27 @@ The SLURM scripts activate `$HOME/rds/hpc-work/venv/dis_proj` by default; overri
 5. **Validate the prior** — `sbatch run_sample_prior.sh` for unconditional draws, then run `notebooks/PQMassPriorCheck.ipynb` (PQMass two-sample test vs PROBES).
 6. **Figure 2** — `python src/figure2.py --ckpt <checkpoint>` (OOD "7" source across noise levels).
 
+## Data & attribution
+
+This project reproduces the method of Adam et al. (2022) (see the top of this
+README); it does **not** build on the `astroddpm` codebase. `astroddpm` is used
+only to *fetch the raw data*: its script
+
+> https://github.com/Smith42/astroddpm/blob/master/data/probes/get_probes.sh
+> (accessed 2026-07-01)
+
+downloads the full PROBES dataset (raw multi-band FITS) into `data/raws/`. The
+g-band selection, center-crop, and normalization to 256x256 `.npy` are done by
+this repository's own `data/preprocess.py`. None of the PROBES imaging is
+redistributed here. The underlying data is the PROBES compilation (Photometry
+and Rotation curve OBservations from Extragalactic Surveys; Stone & Courteau et
+al.), which carries its own terms.
+
+`astroddpm`'s source code is licensed under the **GNU Affero General Public
+License v3.0 (AGPL-3.0)**, but this repository reuses none of that code — only
+the raw PROBES data its script downloads. AGPL applies to code, not to the data,
+so this project remains under its own MIT license.
+
 ## Tests
 
 ```bash
