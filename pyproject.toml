@@ -12,6 +12,8 @@ dependencies = [
     "numpy>=1.24,<2.0",
     "torch>=2.1,<3.0",
     "score-models==0.5.11",
+    "caustics==1.6.0",       # lensing.py SIE + external-shear forward model
+    "matplotlib>=3.8",       # sample.py diagnostic figures
 ]
 
 [project.optional-dependencies]
@@ -19,17 +21,23 @@ preprocess = [
     "astropy>=5.3",
     "tqdm>=4.66",
 ]
+figures = [
+    "pillow>=10.0",          # figure2.py OOD reproduction
+]
+logging = [
+    "wandb>=0.16",           # backfill_wandb.py
+]
 notebooks = [
     "ipykernel>=6.29",
     "jupyterlab>=4.0",
-    "matplotlib>=3.8",
-    "pqm>=0.6",
+    "pqm>=0.6",              # PQMass  — prior validation
+    "mira_score>=0.1.7",     # MIRA    — posterior validation
 ]
 dev = [
     "pytest>=8.0",
 ]
 all = [
-    "dis-project-lensed-galaxy[preprocess,notebooks,dev]",
+    "dis-project-lensed-galaxy[preprocess,figures,logging,notebooks,dev]",
 ]
 
 [project.scripts]
