@@ -1,130 +1,47 @@
-#!/bin/bash
-#!
-#! SLURM job script for Wilkes3 — Stage 2 small-scale training
-#! NCSN++ score-based prior on PROBES at 128×128 (single GPU, ~3-5 hours)
-#!
-
-#!#############################################################
-#!#### Modify the options in this section as appropriate ######
-#!#############################################################
-
-#! sbatch directives begin here ###############################
-#! Name of the job:
-#SBATCH -J probes_stage2
-#! Which project should be charged (NB Wilkes2 projects end in '-GPU'):
-#SBATCH -A MPHIL-DIS-SL2-GPU
-#! How many whole nodes should be allocated?
+#!/usr/bin/env bash
+#SBATCH --job-name=probes_stage2
+#SBATCH --account=MPHIL-DIS-SL2-GPU
+#SBATCH --partition=ampere
 #SBATCH --nodes=1
-#! How many (MPI) tasks will there be in total?
-#! Note probably this should not exceed the total number of GPUs in use.
 #SBATCH --ntasks=1
-#! Specify the number of GPUs per node (between 1 and 4; must be 4 if nodes>1).
-#! Note that the job submission script will enforce no more than 32 cpus per GPU.
+#SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:1
-#! How much wallclock time will be required?
 #SBATCH --time=08:30:00
-#! What types of email messages do you wish to receive?
 #SBATCH --mail-type=END,FAIL
-#! Uncomment this to prevent the job from being requeued (e.g. if
-#! interrupted by node failure or system downtime):
-##SBATCH --no-requeue
+#SBATCH --output=slurm_logs/%x_%j.out
+#SBATCH --error=slurm_logs/%x_%j.err
 
-#! Output and error logs:
-#SBATCH -o slurm_logs/stage2_%j.out
-#SBATCH -e slurm_logs/stage2_%j.err
+set -Eeuo pipefail
 
-#! Do not change:
-#SBATCH -p ampere
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 
-#! sbatch directives end here (put any additional directives above this line)
+# shellcheck source=scripts/lib/hpc_common.sh
+source "$SCRIPT_DIR/lib/hpc_common.sh"
 
-#! Notes:
-#! Charging is determined by GPU number*walltime.
+HPC_START_EPOCH="$(date +%s)"
+export HPC_START_EPOCH
+trap 'hpc_on_exit $?' EXIT
 
-#! Number of nodes and tasks per node allocated by SLURM (do not change):
-numnodes=$SLURM_JOB_NUM_NODES
-numtasks=$SLURM_NTASKS
-mpi_tasks_per_node=$(echo "$SLURM_TASKS_PER_NODE" | sed -e  's/^\([0-9][0-9]*\).*$/\1/')
-#! ############################################################
-#! Modify the settings below to specify the application's environment, location 
-#! and launch method:
+DATA_DIR="${DATA_DIR:-$REPO_ROOT/data/gals_gband_norm}"
+OUTPUT_DIR="${OUTPUT_DIR:-$REPO_ROOT/outputs/probes_diffusion_subset}"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 
-#! Optionally modify the environment seen by the application
-#! (note that SLURM reproduces the environment at submission irrespective of ~/.bashrc):
-. /etc/profile.d/modules.sh                # Leave this line (enables the module command)
-module purge                               # Removes all modules still loaded
-module load rhel8/default-amp              # REQUIRED - loads the basic environment
+hpc_begin "$REPO_ROOT"
+hpc_require_dir "$DATA_DIR"
+hpc_prepare_output_dir "$OUTPUT_DIR"
 
-#! Insert additional module load commands after this line if needed:
-#! Activate your Python environment — EDIT THIS LINE to match your setup:
-VENV="${VENV:-$HOME/rds/hpc-work/venv/dis_proj}"
-source "$VENV/bin/activate"
-#! Or if using conda:
-#! source /path/to/miniconda3/etc/profile.d/conda.sh
-#! conda activate probes
+args=(
+    --data_dir "$DATA_DIR"
+    --output_dir "$OUTPUT_DIR"
+    --image_size 128
+    --nf 128
+    --ch_mult 1 2 2 2
+    --sigma_min 1e-4
+    --epochs 1000
+    --batch_size 64
+    --lr 2e-4
+    --seed 21
+)
 
-#! Full path to application executable:
-application="python"
-
-#! Run options for the application:
-options="src/lowres_sample_train.py \
-    --data_dir ./data/gals_gband_norm \
-    --output_dir ./outputs/probes_diffusion_subset \
-    --image_size 128 \
-    --nf 128 \
-    --ch_mult 1 2 2 2 \
-    --sigma_min 1e-4 \
-    --epochs 1000 \
-    --batch_size 64 \
-    --lr 2e-4 \
-    --seed 21"
-
-#! Work directory (i.e. where the job will run):
-workdir="$SLURM_SUBMIT_DIR"  # The value of SLURM_SUBMIT_DIR sets workdir to the directory
-                             # in which sbatch is run.
-
-#! Are you using OpenMP (NB this is unrelated to OpenMPI)? If so increase this
-#! safe value to no more than 128:
-export OMP_NUM_THREADS=1
-
-#! Number of MPI tasks to be started by the application per node and in total (do not change):
-np=$[${numnodes}*${mpi_tasks_per_node}]
-
-#! Choose this for a pure shared-memory OpenMP parallel program on a single node:
-#! (OMP_NUM_THREADS threads will be created):
-CMD="$application $options"
-
-#! Choose this for a MPI code using OpenMPI:
-#CMD="mpirun -npernode $mpi_tasks_per_node -np $np $application $options"
-
-
-###############################################################
-### You should not have to change anything below this line ####
-###############################################################
-
-cd $workdir
-mkdir -p slurm_logs
-echo -e "Changed directory to `pwd`.\n"
-
-JOBID=$SLURM_JOB_ID
-
-echo -e "JobID: $JOBID\n======"
-echo "Time: `date`"
-echo "Running on master node: `hostname`"
-echo "Current directory: `pwd`"
-
-if [ "$SLURM_JOB_NODELIST" ]; then
-        #! Create a machine file:
-        export NODEFILE=`generate_pbs_nodefile`
-        cat $NODEFILE | uniq > machine.file.$JOBID
-        echo -e "\nNodes allocated:\n================"
-        echo `cat machine.file.$JOBID | sed -e 's/\..*$//g'`
-fi
-
-echo -e "\nnumtasks=$numtasks, numnodes=$numnodes, mpi_tasks_per_node=$mpi_tasks_per_node (OMP_NUM_THREADS=$OMP_NUM_THREADS)"
-
-echo -e "\nExecuting command:\n==================\n$CMD\n"
-
-nvidia-smi
-
-eval $CMD
+hpc_run python -u -m lowres_sample_train "${args[@]}"

@@ -1,147 +1,59 @@
-#!/bin/bash
-#!
-#! SLURM job script for Wilkes3 — Stage 3 full reproduction
-#! NCSN++ score-based prior on PROBES at 256×256 (4× A100 DDP, ~24-35 hours)
-#!
-
-#!#############################################################
-#!#### Modify the options in this section as appropriate ######
-#!#############################################################
-
-#! sbatch directives begin here ###############################
-#! Name of the job:
-#SBATCH -J probes_3
-#! Which project should be charged (NB Wilkes2 projects end in '-GPU'):
-#SBATCH -A MPHIL-DIS-SL2-GPU
-#! How many whole nodes should be allocated?
+#!/usr/bin/env bash
+#SBATCH --job-name=probes_stage3
+#SBATCH --account=MPHIL-DIS-SL2-GPU
+#SBATCH --partition=ampere
 #SBATCH --nodes=1
-#! How many (MPI) tasks will there be in total?
-#! Note probably this should not exceed the total number of GPUs in use.
-#SBATCH --ntasks=4
-#! Specify the number of GPUs per node (between 1 and 4; must be 4 if nodes>1).
-#! Note that the job submission script will enforce no more than 32 cpus per GPU.
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=32
 #SBATCH --gres=gpu:4
-#! How much wallclock time will be required?
-#SBATCH --time=04:00:00
-#! What types of email messages do you wish to receive?
+#SBATCH --time=36:00:00
 #SBATCH --mail-type=END,FAIL
-#! Uncomment this to prevent the job from being requeued (e.g. if
-#! interrupted by node failure or system downtime):
-##SBATCH --no-requeue
+#SBATCH --output=slurm_logs/%x_%j.out
+#SBATCH --error=slurm_logs/%x_%j.err
 
-#! Output and error logs:
-#SBATCH -o slurm_logs/stage3_probes_%j.out
-#SBATCH -e slurm_logs/stage3_probes_%j.err
+set -Eeuo pipefail
 
-#! Do not change:
-#SBATCH -p ampere
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 
-#! sbatch directives end here (put any additional directives above this line)
+# shellcheck source=scripts/lib/hpc_common.sh
+source "$SCRIPT_DIR/lib/hpc_common.sh"
 
-#! Notes:
-#! Charging is determined by GPU number*walltime.
-#! Stage 3 uses all 4 A100s on one node. If the run doesn't finish within
-#! 35 hours (max_hours), it saves a checkpoint and exits cleanly — just
-#! resubmit this same script and training will resume from where it left off.
+HPC_START_EPOCH="$(date +%s)"
+export HPC_START_EPOCH
+trap 'hpc_on_exit $?' EXIT
 
-#! Number of nodes and tasks per node allocated by SLURM (do not change):
-numnodes=$SLURM_JOB_NUM_NODES
-numtasks=$SLURM_NTASKS
-mpi_tasks_per_node=$(echo "$SLURM_TASKS_PER_NODE" | sed -e  's/^\([0-9][0-9]*\).*$/\1/')
-#! ############################################################
-#! Modify the settings below to specify the application's environment, location 
-#! and launch method:
-
-#! Optionally modify the environment seen by the application
-#! (note that SLURM reproduces the environment at submission irrespective of ~/.bashrc):
-. /etc/profile.d/modules.sh                # Leave this line (enables the module command)
-module purge                               # Removes all modules still loaded
-module load rhel8/default-amp              # REQUIRED - loads the basic environment
-
-#! Insert additional module load commands after this line if needed:
-#! Activate your Python environment — EDIT THIS LINE to match your setup:
-VENV="${VENV:-$HOME/rds/hpc-work/venv/dis_proj}"
-source "$VENV/bin/activate"
-#! Or if using conda:
-#! source /path/to/miniconda3/etc/profile.d/conda.sh
-#! conda activate probes
-
-#! Full path to application executable:
-#! Stage 3 uses torchrun to launch 4 DDP workers (one per GPU)
-application="torchrun"
-
-#! Run options for the application:
-options="--standalone --nproc_per_node=4 src/train_prior.py \
-    --data_dir ./data/gals_gband_norm \
-    --output_dir ./outputs/probes_final \
-    --epochs 2700 \
-    --image_size 256 \
-    --nf 128 \
-    --ch_mult 1 1 2 2 2 2 2 \
-    --batch_size 4 \
-    --ckpt_every_steps 1000 \
-    --n_subset -1 \
-    --log_every_steps 50 \
-    --keep_last_n 3 \
-    --max_hours 35 \
-    --clip 1.0 \
-    --lr 1e-4 \
-    --ema_decay 0.9999 \
-    --sigma_min 1e-4 \
-    --sigma_max 263.4 \
-    --resume auto \
-    --seed 21"
-
-#! Work directory (i.e. where the job will run):
-workdir="$SLURM_SUBMIT_DIR"  # The value of SLURM_SUBMIT_DIR sets workdir to the directory
-                             # in which sbatch is run.
-
-#! Are you using OpenMP (NB this is unrelated to OpenMPI)? If so increase this
-#! safe value to no more than 128:
-export OMP_NUM_THREADS=8
-
-#! NCCL settings recommended for DDP on Wilkes3 InfiniBand:
+DATA_DIR="${DATA_DIR:-$REPO_ROOT/data/gals_gband_norm}"
+OUTPUT_DIR="${OUTPUT_DIR:-$REPO_ROOT/outputs/probes_final}"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
+export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
-export NCCL_DEBUG=INFO
 
-#! Number of MPI tasks to be started by the application per node and in total (do not change):
-np=$[${numnodes}*${mpi_tasks_per_node}]
+hpc_begin "$REPO_ROOT"
+hpc_require_command torchrun
+hpc_require_dir "$DATA_DIR"
+hpc_prepare_output_dir "$OUTPUT_DIR"
 
-#! Choose this for a pure shared-memory OpenMP parallel program on a single node:
-#! (OMP_NUM_THREADS threads will be created):
-CMD="$application $options"
+args=(
+    --data_dir "$DATA_DIR"
+    --output_dir "$OUTPUT_DIR"
+    --epochs 2700
+    --image_size 256
+    --nf 128
+    --ch_mult 1 1 2 2 2 2 2
+    --batch_size 4
+    --ckpt_every_steps 1000
+    --n_subset -1
+    --log_every_steps 50
+    --keep_last_n 3
+    --max_hours 35
+    --clip 1.0
+    --lr 1e-4
+    --ema_decay 0.9999
+    --sigma_min 1e-4
+    --sigma_max 263.4
+    --resume auto
+    --seed 21
+)
 
-#! Choose this for a MPI code using OpenMPI:
-#CMD="mpirun -npernode $mpi_tasks_per_node -np $np $application $options"
-
-
-###############################################################
-### You should not have to change anything below this line ####
-###############################################################
-
-cd $workdir
-mkdir -p slurm_logs
-echo -e "Changed directory to `pwd`.\n"
-
-JOBID=$SLURM_JOB_ID
-
-echo -e "JobID: $JOBID\n======"
-echo "Time: `date`"
-echo "Running on master node: `hostname`"
-echo "Current directory: `pwd`"
-
-if [ "$SLURM_JOB_NODELIST" ]; then
-        #! Create a machine file:
-        export NODEFILE=`generate_pbs_nodefile`
-        cat $NODEFILE | uniq > machine.file.$JOBID
-        echo -e "\nNodes allocated:\n================"
-        echo `cat machine.file.$JOBID | sed -e 's/\..*$//g'`
-fi
-
-echo -e "\nnumtasks=$numtasks, numnodes=$numnodes, mpi_tasks_per_node=$mpi_tasks_per_node (OMP_NUM_THREADS=$OMP_NUM_THREADS)"
-
-echo -e "\nExecuting command:\n==================\n$CMD\n"
-
-nvidia-smi
-
-eval $CMD
+hpc_run torchrun --standalone --nproc_per_node=4 -m train_prior "${args[@]}"
