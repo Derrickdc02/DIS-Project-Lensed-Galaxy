@@ -18,7 +18,7 @@ src/
   backfill_wandb.py      rebuild W&B history from SLURM logs
 data/preprocess.py       raw PROBES FITS -> normalized 256x256 .npy
 notebooks/               exploratory prototypes of the above
-run_stage2.sh, run_stage3.sh, run_sample.sh, run_sample_prior.sh   SLURM job scripts (Wilkes3)
+scripts/                 SLURM job scripts, Wilkes3 (run_stage2.sh, run_stage3.sh, run_sample.sh, run_sample_prior.sh)
 ```
 
 ## Setup
@@ -28,15 +28,15 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[all]"   # or pick extras: preprocess, notebooks, dev
 ```
 
-The SLURM scripts activate `$HOME/rds/hpc-work/venv/dis_proj` by default; override with `VENV=/path/to/venv sbatch ...`.
+The SLURM scripts live in `scripts/`; submit them from the repo root (e.g. `sbatch scripts/run_stage2.sh`) so relative paths resolve. They activate `$HOME/rds/hpc-work/venv/dis_proj` by default; override with `VENV=/path/to/venv sbatch ...`.
 
 ## Pipeline
 
 1. **Preprocess** — `cd data && python preprocess.py` (expects raw FITS in `data/raws/`, writes `data/gals_gband_norm/`).
-2. **Train the prior** — `sbatch run_stage2.sh` (low-res pilot) or `sbatch run_stage3.sh` (full 256x256, 4x A100, resumable via `--resume auto`).
-3. **Sample the posterior** — `sbatch run_sample.sh`; chunked and resumable, writes draws + diagnostic figures under `outputs/.../samples/`.
+2. **Train the prior** — `sbatch scripts/run_stage2.sh` (low-res pilot) or `sbatch scripts/run_stage3.sh` (full 256x256, 4x A100, resumable via `--resume auto`).
+3. **Sample the posterior** — `sbatch scripts/run_sample.sh`; chunked and resumable, writes draws + diagnostic figures under `outputs/.../samples/`.
 4. **Validate the posterior** — `python src/chi2.py --output_dir <run dir>` (per-draw chi^2/N ~ 1).
-5. **Validate the prior** — `sbatch run_sample_prior.sh` for unconditional draws, then run `notebooks/PQMassPriorCheck.ipynb` (PQMass two-sample test vs PROBES).
+5. **Validate the prior** — `sbatch scripts/run_sample_prior.sh` for unconditional draws, then run `notebooks/PQMassPriorCheck.ipynb` (PQMass two-sample test vs PROBES).
 6. **Figure 2** — `python src/figure2.py --ckpt <checkpoint>` (OOD "7" source across noise levels).
 
 ## Data & attribution
