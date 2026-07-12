@@ -2,7 +2,8 @@
 /data/ood/
 /data/gals_gband_norm/
 outputs/
-slurm_logs/
+slurm_logs/*
+!slurm_logs/.gitkeep
 .venv/
 *.egg-info/
 __pycache__/
