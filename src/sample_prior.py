@@ -29,8 +29,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main():
-    args = build_arg_parser().parse_args()
-    assert args.n_samples % args.chunk == 0, "--n_samples must be a multiple of --chunk"
+    parser = build_arg_parser()
+    args = parser.parse_args()
+    if args.n_samples <= 0 or args.chunk <= 0:
+        parser.error("--n_samples and --chunk must be positive")
+    if args.n_samples % args.chunk:
+        parser.error("--n_samples must be a multiple of --chunk")
     n_chunks = args.n_samples // args.chunk
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

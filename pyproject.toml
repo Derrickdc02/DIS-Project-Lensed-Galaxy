@@ -27,6 +27,11 @@ figures = [
 logging = [
     "wandb>=0.16",           # backfill_wandb.py
 ]
+validation = [
+    "pqm>=0.6",
+    "mira_score>=0.1.7",
+    "scipy>=1.10",
+]
 notebooks = [
     "ipykernel>=6.29",
     "jupyterlab>=4.0",
@@ -61,6 +66,8 @@ train-prior-lowres = "lowres_sample_train:main"
 sample-posterior = "sample:main"
 sample-prior = "sample_prior:main"
 validate-chi2 = "chi2:main"
+validate-pqmass = "validate_pqmass:main"
+validate-mira = "validate_mira:main"
 reproduce-figure2 = "figure2:main"
 
 [tool.setuptools]
@@ -75,6 +82,8 @@ py-modules = [
     "sample",
     "sample_prior",
     "train_prior",
+    "validate_mira",
+    "validate_pqmass",
 ]
 
 [tool.ruff]
