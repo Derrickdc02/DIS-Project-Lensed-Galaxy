@@ -8,7 +8,6 @@ figures. Defaults reproduce the full run: 8000 steps, 160 draws, chunks of 32.
 """
 
 import argparse
-import glob
 import time
 from pathlib import Path
 
@@ -111,17 +110,35 @@ def posterior_sample(
 
 
 # ---- Ground-truth source ----
+def discover_sources(data_dir: str | Path) -> list[Path]:
+    """Return sorted preprocessed PROBES source files."""
+
+    source_files = sorted(Path(data_dir).glob("*.npy"))
+    if not source_files:
+        raise FileNotFoundError(f"No .npy files found in {data_dir}")
+    return source_files
+
+
 def load_source(data_dir: str | Path, pick: int, device: torch.device) -> tuple[torch.Tensor, str]:
-    """Load one preprocessed PROBES image -> (H, W) float32 source in [-1, 1]."""
-    src_files = sorted(glob.glob(str(Path(data_dir) / "*.npy")))
-    assert src_files, f"No .npy files found in {data_dir}"
-    arr = np.load(src_files[pick]).astype(np.float32)
+    """Load one preprocessed PROBES image as a two-dimensional tensor."""
+
+    source_files = discover_sources(data_dir)
+    if not -len(source_files) <= pick < len(source_files):
+        raise IndexError(f"Source index {pick} is outside [0, {len(source_files) - 1}]")
+    path = source_files[pick]
+    arr = np.load(path).astype(np.float32)
     if arr.ndim == 3:
         arr = arr[0]
-    name = Path(src_files[pick]).stem
+    if arr.ndim != 2:
+        raise ValueError(f"Expected a 2D source in {path}, got {arr.shape}")
+    if not np.isfinite(arr).all():
+        raise ValueError(f"Source contains NaN or Inf values: {path}")
+    name = path.stem
     src = torch.from_numpy(arr).to(device)
-    print(f"Ground truth: [{pick}] {name}  shape={tuple(src.shape)}  "
-          f"range=[{src.min():.3f}, {src.max():.3f}]")
+    print(
+        f"Ground truth: [{pick}] {name}  shape={tuple(src.shape)}  "
+        f"range=[{src.min():.3f}, {src.max():.3f}]"
+    )
     return src, name
 
 
@@ -225,7 +242,8 @@ def plot_grid(
     axes[1, 0].text(0.04, 0.96, fr"$\sigma_{{\mathcal{{N}}}}={noise_sigma:g}$",
                     transform=axes[1, 0].transAxes, color="white", fontsize=11, va="top")
     for ax in axes.flat:
-        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_xticks([])
+        ax.set_yticks([])
 
     fig.subplots_adjust(right=0.9)
     cax_int = fig.add_axes([0.91, 0.55, 0.012, 0.34])
@@ -272,8 +290,12 @@ def atomic_save(obj, path: Path) -> None:
 
 
 def main():
-    args = build_arg_parser().parse_args()
-    assert args.n_post % args.chunk == 0, "--n_post must be a multiple of --chunk"
+    parser = build_arg_parser()
+    args = parser.parse_args()
+    if args.n_post <= 0 or args.chunk <= 0:
+        parser.error("--n_post and --chunk must be positive")
+    if args.n_post % args.chunk:
+        parser.error("--n_post must be a multiple of --chunk")
     n_chunks = args.n_post // args.chunk
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
