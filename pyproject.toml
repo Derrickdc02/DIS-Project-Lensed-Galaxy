@@ -32,20 +32,50 @@ notebooks = [
     "jupyterlab>=4.0",
     "pqm>=0.6",              # PQMass  — prior validation
     "mira_score>=0.1.7",     # MIRA    — posterior validation
+    "scipy>=1.10",
 ]
 dev = [
     "pytest>=8.0",
+    "ruff>=0.5",
+    "build>=1.2",
 ]
 all = [
-    "dis-project-lensed-galaxy[preprocess,figures,logging,notebooks,dev]",
+    "astropy>=5.3",
+    "tqdm>=4.66",
+    "pillow>=10.0",
+    "wandb>=0.16",
+    "ipykernel>=6.29",
+    "jupyterlab>=4.0",
+    "pqm>=0.6",
+    "mira_score>=0.1.7",
+    "scipy>=1.10",
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "build>=1.2",
 ]
 
 [project.scripts]
+preprocess-probes = "preprocess:main"
 train-prior = "train_prior:main"
 train-prior-lowres = "lowres_sample_train:main"
+sample-posterior = "sample:main"
+sample-prior = "sample_prior:main"
+validate-chi2 = "chi2:main"
+reproduce-figure2 = "figure2:main"
 
 [tool.setuptools]
-py-modules = ["train_prior", "lowres_sample_train"]
+package-dir = {"" = "src"}
+py-modules = [
+    "backfill_wandb",
+    "chi2",
+    "figure2",
+    "lensing",
+    "lowres_sample_train",
+    "preprocess",
+    "sample",
+    "sample_prior",
+    "train_prior",
+]
 
 [tool.ruff]
 line-length = 100
