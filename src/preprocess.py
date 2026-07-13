@@ -23,7 +23,6 @@ def check_for_corruption(ar: np.ndarray) -> bool:
     Images are rejected when they contain non-finite values or when more than
     30 percent of their pixels are exactly zero.
     """
-
     if not np.isfinite(ar).all():
         return True
     zero_fraction = np.count_nonzero(ar == 0) / ar.size
@@ -44,8 +43,8 @@ def center_crop(ar: np.ndarray, crop_size: int = CROP_SIZE) -> np.ndarray:
     -------
     numpy.ndarray
         Centred square crop with shape (crop_size, crop_size).
-    """
 
+    """
     if ar.ndim != 2:
         raise ValueError(f"Expected a 2D image, got shape {ar.shape}")
     if crop_size <= 0 or crop_size % 2:
@@ -69,7 +68,6 @@ def normalize_probes(x: np.ndarray, A: float = A, lower: float = LOWER) -> np.nd
     The transform follows the preprocessing used by Smith et al. and the
     strong-lensing experiments: 2 * clip(x, lower, A) / A - 1.
     """
-
     if A <= 0:
         raise ValueError(f"A must be positive, got {A}")
     if lower < 0 or lower >= A:
@@ -81,7 +79,6 @@ def normalize_probes(x: np.ndarray, A: float = A, lower: float = LOWER) -> np.nd
 
 def process_one_fits(path: str | Path) -> np.ndarray:
     """Load, validate, crop, and normalize one FITS image."""
-
     path = Path(path)
     if path.stat().st_size < MIN_FILESIZE:
         raise ValueError("File appears empty or too small")
@@ -103,7 +100,6 @@ def process_one_fits(path: str | Path) -> np.ndarray:
 
 def _discover_project_root(start: Path | None = None) -> Path:
     """Find the nearest parent containing this project's pyproject.toml."""
-
     start = (start or Path.cwd()).resolve()
     for candidate in (start, *start.parents):
         pyproject = candidate / "pyproject.toml"
@@ -116,7 +112,6 @@ def _discover_project_root(start: Path | None = None) -> Path:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     """Build the command-line parser for PROBES preprocessing."""
-
     project_root = _discover_project_root()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -136,12 +131,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=BAND,
         help=f"FITS band suffix to select (default: {BAND})",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace existing normalized .npy files (default: preserve them)",
+    )
     return parser
 
 
 def main() -> int:
     """Run the preprocessing CLI and return a process exit status."""
-
     parser = build_arg_parser()
     args = parser.parse_args()
     raw_dir = args.raw_dir.expanduser().resolve()
@@ -155,12 +154,18 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     kept = 0
     skipped = 0
+    existing = 0
 
     for path in tqdm(files, desc=f"Processing {args.band}-band FITS"):
         try:
-            image = process_one_fits(path)[None, :, :]
             out_name = path.name.removesuffix(f"_{args.band}.fits") + ".npy"
-            np.save(out_dir / out_name, image)
+            out_path = out_dir / out_name
+            if out_path.exists() and not args.overwrite:
+                print(f"Preserving existing output: {out_path}")
+                existing += 1
+                continue
+            image = process_one_fits(path)[None, :, :]
+            np.save(out_path, image)
             kept += 1
         except (OSError, ValueError) as exc:
             print(f"Skipping {path}: {exc}")
@@ -169,9 +174,10 @@ def main() -> int:
     print("Done.")
     print(f"Saved:   {kept}")
     print(f"Skipped: {skipped}")
+    print(f"Existing outputs preserved: {existing}")
     print(f"Output directory: {out_dir}")
 
-    if kept == 0:
+    if kept == 0 and existing == 0:
         print("No usable FITS files were produced.")
         return 1
     return 0

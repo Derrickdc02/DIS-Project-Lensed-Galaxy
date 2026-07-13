@@ -13,9 +13,8 @@ import math
 
 import caustics
 
-# Source-plane scale (arcsec/pixel) used across sampling/analysis scripts: shrinks
-# the source FOV inside the lens footprint -> no unconstrained border, uniform
-# posterior std. Fully covers the default geometry below.
+# Keep the source field of view inside the lens footprint to avoid unconstrained
+# borders and spatially varying posterior uncertainty.
 SOURCE_PIXELSCALE = 0.028
 
 
@@ -36,13 +35,13 @@ def build_lens_sim(
     source_pixelscale: float | None = None,  # source plane; None -> = pixelscale
     z_l: float = 0.5,
     z_s: float = 1.5,
-    # --- SIE (main lens galaxy) ---
+    # SIE main-lens parameters.
     x0: float = 0.0,
     y0: float = 0.0,
     q: float = 0.7,             # axis ratio (minor/major)
     phi: float = math.pi / 6,   # position angle (rad)
     Rein: float = 1.2,          # Einstein radius (arcsec)
-    # --- external shear (line-of-sight / environment) ---
+    # External-shear parameters for the line of sight and environment.
     gamma_1: float = 0.03,
     gamma_2: float = 0.04,      # (0.03, 0.04) -> |gamma| = 0.05 at ~26.6 deg
     device=None,
@@ -74,6 +73,7 @@ def build_lens_sim(
     -------
     caustics.LensSource
         Callable forward operator: source image -> lensed image-plane image.
+
     """
     if cosmology is None:
         cosmology = caustics.FlatLambdaCDM(name="cosmo")

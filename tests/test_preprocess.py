@@ -6,7 +6,7 @@ import sample
 
 
 def test_normalization_constant_matches_sample():
-    """preprocess.A and sample.FLUX_A are deliberate duplicates; they must agree."""
+    """Keep preprocessing and display normalization constants aligned."""
     assert preprocess.A == sample.FLUX_A
 
 
@@ -41,5 +41,40 @@ def test_check_for_corruption():
     assert preprocess.check_for_corruption(nanned)
 
     zeroed = ok.copy()
-    zeroed.flat[:40] = 0.0   # 40% zeros > 30% threshold
+    zeroed.flat[:40] = 0.0  # Forty percent exceeds the rejection threshold.
     assert preprocess.check_for_corruption(zeroed)
+
+
+def test_main_preserves_existing_output_unless_overwrite_requested(tmp_path, monkeypatch):
+    raw_dir = tmp_path / "raws"
+    out_dir = tmp_path / "normalized"
+    raw_dir.mkdir()
+    out_dir.mkdir()
+    (raw_dir / "galaxy_g.fits").write_bytes(b"placeholder")
+
+    output = out_dir / "galaxy.npy"
+    original = np.zeros((1, 256, 256), dtype=np.float32)
+    replacement = np.ones((256, 256), dtype=np.float32)
+    np.save(output, original)
+    monkeypatch.setattr(preprocess, "process_one_fits", lambda _path: replacement)
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["preprocess-probes", "--raw-dir", str(raw_dir), "--out-dir", str(out_dir)],
+    )
+    assert preprocess.main() == 0
+    np.testing.assert_array_equal(np.load(output), original)
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "preprocess-probes",
+            "--raw-dir",
+            str(raw_dir),
+            "--out-dir",
+            str(out_dir),
+            "--overwrite",
+        ],
+    )
+    assert preprocess.main() == 0
+    np.testing.assert_array_equal(np.load(output), replacement[None, :, :])

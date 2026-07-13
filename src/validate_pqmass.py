@@ -14,7 +14,6 @@ import torch.nn.functional as F
 
 def load_prior_samples(path: str | Path) -> torch.Tensor:
     """Load prior draws from a merged tensor file or resumable chunk directory."""
-
     path = Path(path)
     if path.is_file():
         samples = torch.load(path, map_location="cpu", weights_only=False)
@@ -57,7 +56,6 @@ def load_real_samples(
     seed: int,
 ) -> torch.Tensor:
     """Load a deterministic random subset of normalized PROBES arrays."""
-
     data_dir = Path(data_dir)
     files = sorted(data_dir.glob("*.npy"))
     if not files:
@@ -98,7 +96,6 @@ def prepare_two_sample_arrays(
     seed: int,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Match sample counts and flatten prior and real images for PQMass."""
-
     sample_count = min(prior.shape[0], real.shape[0])
     if max_samples is not None:
         sample_count = min(sample_count, max_samples)
@@ -123,10 +120,9 @@ def pca_scores(
     A dual Gram-matrix eigendecomposition avoids materialising the much larger
     pixel covariance matrix.
     """
-
     if n_components <= 0:
         raise ValueError("n_components must be positive")
-    combined = np.concatenate([real, prior], axis=0).astype(np.float64)
+    combined = np.concatenate([real, prior], axis=0).astype(np.float32, copy=False)
     centered = combined - combined.mean(axis=0, keepdims=True)
     gram = centered @ centered.T
     eigenvalues, eigenvectors = np.linalg.eigh(gram)
@@ -156,7 +152,6 @@ def pqmass_statistics(
     seed: int,
 ) -> dict[str, Any]:
     """Run PQMass and return distributions plus summary statistics."""
-
     from pqm import pqm_chi2, pqm_pvalue
 
     if prior.shape != real.shape:
@@ -206,7 +201,6 @@ def _summary_without_arrays(statistics: dict[str, Any]) -> dict[str, Any]:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     """Build the PQMass command-line parser."""
-
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prior", type=Path, required=True, help="prior_samples.pt or its directory")
     parser.add_argument("--data-dir", type=Path, required=True, help="normalized PROBES .npy directory")
@@ -222,7 +216,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     """Run pixel-space and PCA-space PQMass validation."""
-
     args = build_arg_parser().parse_args()
     if args.max_samples < 16:
         raise SystemExit("--max-samples must be at least 16")

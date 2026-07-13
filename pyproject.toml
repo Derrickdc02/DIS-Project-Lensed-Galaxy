@@ -99,11 +99,15 @@ py-modules = [
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+[tool.ruff.lint]
+extend-select = ["D"]
+ignore = ["D203", "D213"]
 [tool.ruff.lint.per-file-ignores]
-"*.ipynb" = ["E402"]
+"*.ipynb" = ["D", "E402"]
+"tests/*.py" = ["D"]
 
 [tool.nbqa.addopts]
-ruff = ["--ignore=E402"]
+ruff = ["--ignore=D,E402"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "data"]
