@@ -33,6 +33,9 @@ def test_source_discovery_and_loading(tmp_path):
     with pytest.raises(IndexError):
         load_source(tmp_path, 2, torch.device("cpu"))
 
+    with pytest.raises(IndexError):
+        load_source(tmp_path, -1, torch.device("cpu"))
+
 
 def test_source_discovery_empty_directory(tmp_path):
     with pytest.raises(FileNotFoundError):
@@ -51,12 +54,22 @@ def test_load_prior_samples_from_chunks(tmp_path):
     assert torch.equal(samples[2:], torch.ones(3, 1, 4, 4))
 
 
-def test_pca_scores_joint_projection():
+def test_pca_scores_joint_projection(monkeypatch):
     rng = np.random.default_rng(0)
     real = rng.normal(size=(16, 8)).astype(np.float32)
     prior = rng.normal(size=(16, 8)).astype(np.float32)
 
+    original_eigh = np.linalg.eigh
+    observed = {}
+
+    def record_dtype(matrix):
+        observed["dtype"] = matrix.dtype
+        return original_eigh(matrix)
+
+    monkeypatch.setattr(np.linalg, "eigh", record_dtype)
+
     real_scores, prior_scores, retained = pca_scores(real, prior, 3)
+    assert observed["dtype"] == np.float32
     assert real_scores.shape == (16, 3)
     assert prior_scores.shape == (16, 3)
     assert 0.0 < retained <= 1.0
@@ -106,6 +119,9 @@ def test_mira_smoke_case_and_baselines():
     expanded_names, expanded = add_directional_baselines(["base"], posterior[:1])
     assert len(expanded_names) == 3
     assert expanded.shape[0] == 3
+
+    with pytest.raises(ValueError, match="At least one model name"):
+        add_directional_baselines([], posterior[:0])
 
 
 def test_parse_model_spec(tmp_path):

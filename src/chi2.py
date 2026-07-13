@@ -13,10 +13,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from lensing import build_lens_sim, SOURCE_PIXELSCALE
-from sample import lens_forward, pixelate_image
-
-FLUX_A = 5.5
+from lensing import SOURCE_PIXELSCALE, build_lens_sim
+from sample import FLUX_A, lens_forward, pixelate_image
 
 
 def main():
@@ -40,7 +38,7 @@ def main():
     pool = d.get("image_pool", 2)
     sim = build_lens_sim(device=device, source_pixelscale=SOURCE_PIXELSCALE)
 
-    chi2 = torch.empty(post.shape[0], dtype=torch.float64)
+    chi2 = torch.empty(post.shape[0], dtype=torch.float64, device=post.device)
     with torch.no_grad():
         true_prediction = pixelate_image(
             lens_forward(sim, src.squeeze()), pool
@@ -57,7 +55,7 @@ def main():
         mean_pred = pixelate_image(lens_forward(sim, post.mean(0)[0]), pool)
         chi2_mean = (((obs - mean_pred) / sigma) ** 2).sum().item() / N
 
-    values = chi2.numpy()
+    values = chi2.cpu().numpy()
     q16, median, q84 = np.quantile(values, [0.16, 0.50, 0.84])
 
     print(f"draws={post.shape[0]}  N={N}  sigma_y={sigma}")

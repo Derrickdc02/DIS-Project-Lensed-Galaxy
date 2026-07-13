@@ -79,7 +79,7 @@ Raw PROBES imaging is not distributed with this repository. After obtaining the 
 files, place them below `data/raws/` and run:
 
 ```bash
-preprocess-probes   --input-dir data/raws   --output-dir data/gals_gband_norm   --crop-size 256
+preprocess-probes --raw-dir data/raws --out-dir data/gals_gband_norm
 ```
 
 See the [preprocessing documentation](docs/preprocessing.md) for selection,

@@ -14,7 +14,6 @@ import torch
 
 def discover_runs(root: str | Path) -> list[Path]:
     """Find run directories containing samples/posterior_draws.pt."""
-
     root = Path(root)
     files = sorted(root.rglob("samples/posterior_draws.pt"))
     return [path.parent.parent for path in files]
@@ -22,7 +21,6 @@ def discover_runs(root: str | Path) -> list[Path]:
 
 def parse_model_spec(specification: str) -> tuple[str, Path]:
     """Parse a NAME=PATH model specification."""
-
     if "=" not in specification:
         raise ValueError(f"Model specification must be NAME=PATH, got {specification!r}")
     name, raw_path = specification.split("=", 1)
@@ -33,7 +31,6 @@ def parse_model_spec(specification: str) -> tuple[str, Path]:
 
 def load_posterior_run(run_dir: str | Path) -> tuple[str, torch.Tensor, torch.Tensor]:
     """Load one truth and its posterior draws from a sampling run."""
-
     run_dir = Path(run_dir)
     artifact = run_dir / "samples" / "posterior_draws.pt"
     if not artifact.is_file():
@@ -72,7 +69,6 @@ def assemble_model_tensors(
     (M,T,S,D). The smallest available posterior sample count is used for all
     model/truth pairs.
     """
-
     if not model_runs:
         raise ValueError("At least one model is required")
 
@@ -126,7 +122,6 @@ def pca_project(
     seed: int,
 ) -> tuple[torch.Tensor, torch.Tensor, float]:
     """Project truths and posterior draws into a joint low-rank PCA space."""
-
     if n_components <= 0:
         raise ValueError("n_components must be positive")
     model_count, truth_count, sample_count, dimension = posterior.shape
@@ -159,7 +154,6 @@ def gaussian_smoke_case(
     seed: int = 1,
 ) -> tuple[list[str], torch.Tensor, torch.Tensor]:
     """Create matched, over-confident, and under-confident Gaussian posteriors."""
-
     generator = torch.Generator().manual_seed(seed)
     centres = torch.randn(truth_count, dimension, generator=generator)
     truth = centres + torch.randn(truth_count, dimension, generator=generator)
@@ -190,7 +184,14 @@ def add_directional_baselines(
     posterior: torch.Tensor,
 ) -> tuple[list[str], torch.Tensor]:
     """Append narrowed and broadened versions of the first model posterior."""
-
+    if not names:
+        raise ValueError("At least one model name is required")
+    if posterior.ndim != 4:
+        raise ValueError("Posterior must have shape (M,T,S,D)")
+    if posterior.shape[0] != len(names):
+        raise ValueError("Model-name count does not match posterior model axis")
+    if posterior.shape[2] < 1:
+        raise ValueError("Each model posterior requires at least one sample")
     base = posterior[0:1]
     mean = base.mean(dim=2, keepdim=True)
     narrowed = mean + (base - mean) / math.sqrt(3.0)
@@ -215,7 +216,6 @@ def run_mira_scores(
     seed: int,
 ) -> dict[str, Any]:
     """Run MIRA and return JSON-serializable score summaries."""
-
     from mira_score import mira, mira_bootstrap
 
     if posterior.ndim != 4 or truth.ndim != 2:
@@ -283,7 +283,6 @@ def _device_from_name(name: str) -> torch.device:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     """Build the MIRA command-line parser."""
-
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runs-root", type=Path, default=Path("outputs"))
     parser.add_argument(
@@ -307,7 +306,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     """Run MIRA on saved posterior runs or a deterministic synthetic smoke case."""
-
     args = build_arg_parser().parse_args()
     device = _device_from_name(args.device)
 

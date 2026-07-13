@@ -1,5 +1,4 @@
-"""
-DDP training for the 256x256 PROBES score-based prior.
+"""DDP training for the 256x256 PROBES score-based prior.
 
 This script intentionally does not call ScoreModel.fit().  The score_models
 library provides the NCSN++ architecture, VE SDE setup, and DSM loss through
@@ -106,12 +105,15 @@ class ProbesDataset(Dataset):
     """CPU tensor dataset. Batches are moved to GPU inside the training loop."""
 
     def __init__(self, images):
+        """Convert image arrays to channel-first CPU tensors."""
         self.images = torch.from_numpy(images).float().unsqueeze(1)
 
     def __len__(self):
+        """Return the number of images."""
         return len(self.images)
 
     def __getitem__(self, idx):
+        """Return one normalized image tensor."""
         return self.images[idx]
 
 
@@ -128,7 +130,9 @@ def estimate_sigma_max(images, n_pairs=5000, seed=21):
 
 class EMA:
     """Maintain exponential-moving-average copies of trainable parameters."""
+
     def __init__(self, parameters, decay):
+        """Initialize shadow copies for trainable parameters."""
         params = [p for p in parameters if p.requires_grad]
         self.decay = decay
         self.shadow = [p.detach().clone() for p in params]
