@@ -69,6 +69,9 @@ hpc_print_environment() {
     printf 'Job ID: %s\n' "${SLURM_JOB_ID:-unknown}"
     printf 'Job name: %s\n' "${SLURM_JOB_NAME:-unknown}"
     printf 'Node list: %s\n' "${SLURM_JOB_NODELIST:-unknown}"
+    printf 'Slurm tasks: %s\n' "${SLURM_NTASKS:-unknown}"
+    printf 'Slurm CPUs per task: %s\n' "${SLURM_CPUS_PER_TASK:-unknown}"
+    printf 'Slurm GPUs: %s\n' "${SLURM_GPUS:-${SLURM_JOB_GPUS:-unknown}}"
     printf 'Submit directory: %s\n' "${SLURM_SUBMIT_DIR:-unknown}"
     printf 'Git commit: %s (%s)\n' "$(git -C "$repo_root" rev-parse HEAD)" "$git_state"
     printf 'Python: %s\n' "$(python --version 2>&1)"
@@ -113,6 +116,7 @@ hpc_begin() {
     hpc_load_modules
     hpc_activate_environment
     hpc_require_command srun
+    printf 'Started: %s\n' "$(date --iso-8601=seconds)"
     hpc_print_environment "$repo_root"
 }
 
