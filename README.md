@@ -53,7 +53,7 @@ preprocess-probes --help
 validate-mira --smoke-test --device cpu --num-runs 4 --num-bootstrap 4
 ```
 
-The current suite contains 32 tests. GPU training and full diffusion sampling are not
+The current suite contains 33 tests. GPU training and full diffusion sampling are not
 part of these CPU checks.
 
 ## CPU Docker verification
@@ -65,13 +65,30 @@ docker build --tag dis-lensed-galaxy:verify .
 docker run --rm dis-lensed-galaxy:verify
 ```
 
-The image runs all 32 tests, checks all nine CLI entry points and runs a small MIRA
+The image runs all 33 tests, checks all nine CLI entry points and runs a small MIRA
 smoke test. It does not emulate Wilkes3, Slurm, CUDA or multi-GPU training. Remove the
 local image after verification if desired:
 
 ```bash
 docker image rm dis-lensed-galaxy:verify
 ```
+
+## GitLab CI submission
+
+The root `.gitlab-ci.yml` mirrors the CPU-safe GitHub checks for GitLab merge
+requests, branches and tags. It runs Python 3.11 tests, Ruff, notebook lint,
+wheel/CLI smoke tests, HPC shell checks, a strict Sphinx build and the CPU Docker
+verification. It never submits Slurm jobs or runs GPU training and sampling.
+
+After pushing to a GitLab project, check `Settings > CI/CD > Runners` before
+opening `Build > Pipelines`. The container job uses Docker-in-Docker and therefore
+requires a compatible runner. If that job cannot connect to a Docker daemon, contact
+the GitLab administrator rather than weakening the Python or shell checks.
+
+The `deploy-pages` job publishes Sphinx output only from the GitLab default branch
+and only when GitLab Pages is enabled by the server. Its URL is shown under
+`Deploy > Pages`. Checkpoints, private Drive links and GPU credentials are not
+required by any CI job.
 
 ## Data and preprocessing
 
