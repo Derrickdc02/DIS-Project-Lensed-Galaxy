@@ -87,7 +87,8 @@ the GitLab administrator rather than weakening the Python or shell checks.
 
 The `deploy-pages` job publishes Sphinx output only from the GitLab default branch
 and only when GitLab Pages is enabled by the server. Its URL is shown under
-`Deploy > Pages`. Checkpoints, private Drive links and GPU credentials are not
+`Deploy > Pages`. This optional deployment does not block the required CI jobs.
+Checkpoints, private Drive links and GPU credentials are not
 required by any CI job.
 
 ## Data and preprocessing
