@@ -1,28 +1,32 @@
 # Reproducibility artifact record
 
-`manifest.json` records the Google Drive files discovered on 2026-07-13. It is an
-audit record, not a claim that the current files are publicly reproducible.
+`manifest.json` records the checkpoint and representative generated outputs retained
+in private Google Drive storage. Private Drive links and file IDs are deliberately not
+published in this repository.
 
-## Current release gate
+## Access policy
 
-All listed Drive files reported `shared: false`, and an unauthenticated checkpoint
-request returned HTML rather than the file. The release candidate must not be tagged
-until the owner completes all of the following:
+Checkpoints and large generated artifacts are available for academic reproducibility
+upon reasonable request. Email **derricktang02@gmail.com** with:
 
-1. Set the checkpoint, posterior/prior draws, summary files and their parent folder to
-   **Anyone with the link: Viewer**.
-2. Download the three large tensors and calculate checksums:
+- your name;
+- your institution or affiliation; and
+- a short description of the intended reproducibility use.
 
-   ```bash
-   sha256sum latest.pt posterior_draws.pt prior_samples.pt
-   ```
+Approved requests receive individual, read-only Google Drive access. The files do not
+need to be publicly accessible for this release because the code, environment,
+commands and access procedure are documented, and every artifact can be regenerated
+with the version-controlled workflows.
 
-3. Replace each `null` `sha256` value in `manifest.json` and re-check every recorded
-   byte size.
-4. Record the generating Git SHA. For a rerun, use the SHA printed in the new Slurm
-   log; legacy artifacts do not contain enough evidence to infer it.
-5. Verify each URL from a signed-out browser before changing `release_ready` to true.
+## Integrity and provenance
 
-The connector supplied raw bytes for the three small artifacts, so their SHA-256
-values are complete. File sizes, IDs, timestamps and permission state come directly
-from Drive metadata. No checksum or Git SHA has been guessed.
+SHA-256 is recorded for the three small artifacts whose raw bytes were available
+during the audit. The three large legacy tensors remain without SHA-256 because their
+owner chose not to download them solely to calculate a checksum. This is disclosed in
+the manifest and is not a publication blocker under the private-on-request policy.
+Recipients can still calculate a local checksum after download and report any transfer
+problem.
+
+Legacy artifacts also predate the new Slurm provenance logging, so their generating
+Git SHA is unknown. New jobs record the Git SHA, dirty state, environment, command,
+resources and timing in `slurm_logs/`; future shared artifacts should retain that log.

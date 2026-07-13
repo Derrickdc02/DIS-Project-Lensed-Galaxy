@@ -53,10 +53,11 @@ boundaries. Outputs are written below `outputs/` by default and Slurm logs below
 
 ## Reproducibility artifacts
 
-The audited Google Drive inventory and release gate are in
-[`artifacts/manifest.json`](artifacts/manifest.json). As of 2026-07-13 the recorded
-files are still private, and large-tensor SHA-256/Git-SHA provenance is incomplete;
-see [`artifacts/README.md`](artifacts/README.md) before using or tagging them.
+The audited artifact inventory is in
+[`artifacts/manifest.json`](artifacts/manifest.json). Checkpoints and large generated
+outputs remain private and are available for academic reproducibility upon reasonable
+request. Email **derricktang02@gmail.com** with your name, affiliation and intended
+use; see [`artifacts/README.md`](artifacts/README.md) for the access policy.
 
 ## Repository layout
 
