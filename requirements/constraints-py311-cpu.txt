@@ -1,0 +1,19 @@
+# Versions exercised by the successful Python 3.11 CPU Docker build on 2026-07-13.
+numpy==1.26.4
+torch==2.13.0+cpu
+score-models==0.5.11
+caustics==1.6.0
+matplotlib==3.11.0
+astropy==6.1.7
+tqdm==4.68.4
+pillow==12.3.0
+pqm==0.6.3
+mira_score==0.1.7
+scipy==1.17.1
+pytest==9.1.1
+ruff==0.15.21
+build==1.5.1
+nbqa==1.9.1
+sphinx==9.0.4
+myst-parser==5.1.0
+furo==2025.12.19

@@ -28,6 +28,7 @@ cli
 api
 notebooks
 ci_container
+artifacts
 limitations
 references
 ```

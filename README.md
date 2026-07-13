@@ -51,6 +51,13 @@ hard limit. Training uses `--resume auto`; sampling resumes at completed chunk
 boundaries. Outputs are written below `outputs/` by default and Slurm logs below
 `slurm_logs/`.
 
+## Reproducibility artifacts
+
+The audited Google Drive inventory and release gate are in
+[`artifacts/manifest.json`](artifacts/manifest.json). As of 2026-07-13 the recorded
+files are still private, and large-tensor SHA-256/Git-SHA provenance is incomplete;
+see [`artifacts/README.md`](artifacts/README.md) before using or tagging them.
+
 ## Repository layout
 
 - `src/`: installable training, sampling, preprocessing and validation modules.
