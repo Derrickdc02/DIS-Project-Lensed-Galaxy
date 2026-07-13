@@ -5,6 +5,28 @@ background galaxies in strong gravitational lenses. An NCSN++ prior learned from
 PROBES g-band galaxies is combined with a differentiable SIE plus external-shear lens
 and a convolved Gaussian likelihood to generate posterior source samples.
 
+## Report and summary
+
+- [Full project report](report/report.pdf): scientific motivation, methodology,
+  experiments, results and discussion.
+- [Project summary](report/summary.pdf): a shorter overview of the research question,
+  approach and principal findings.
+
+Both documents are stored in the repository so that the submitted code and its
+scientific account remain versioned together.
+
+## Workflow at a glance
+
+1. Obtain the private PROBES FITS inputs and preprocess their g-band images.
+2. Train the score-based source prior on Wilkes3, resuming from checkpoints when
+   required.
+3. Draw unconditional prior samples or posterior samples conditioned on a lensed
+   observation.
+4. Validate the prior and posterior with PQMass, MIRA and chi-squared diagnostics,
+   and reproduce the qualitative Figure 2 experiment.
+5. Use the CPU test suite, strict documentation build and container as independent
+   checks of the installable software and lightweight workflows.
+
 ## Documentation
 
 The scientific workflow, CLI/API reference, Wilkes3 instructions, notebook catalogue
@@ -33,6 +55,28 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e ".[all]"
 ```
+The editable installation exposes nine commands. Each command supports `--help` and
+can be called from any directory after activating the environment:
+
+| Command | Purpose |
+|---|---|
+| `preprocess-probes` | Select, crop and normalise PROBES g-band images. |
+| `train-prior` | Train the full-resolution score prior. |
+| `train-prior-lowres` | Run the lower-resolution training workflow. |
+| `sample-posterior` | Draw source samples conditioned on a lensed observation. |
+| `sample-prior` | Draw unconditional samples from the learned prior. |
+| `validate-chi2` | Evaluate image-space chi-squared diagnostics. |
+| `validate-pqmass` | Compare real and generated populations with PQMass. |
+| `validate-mira` | Evaluate posterior calibration with MIRA. |
+| `reproduce-figure2` | Reproduce the qualitative out-of-distribution experiment. |
+
+For example:
+
+```bash
+sample-posterior --help
+validate-pqmass --help
+```
+
 
 For the exact CPU versions exercised by CI and Docker:
 
@@ -124,6 +168,19 @@ Stage 3 requests 36 hours and uses `--max_hours 35` to save before Slurm's hard
 limit. Training uses `--resume auto`; sampling resumes at completed chunk boundaries.
 Outputs are written below `outputs/` and job logs below `slurm_logs/`. Full resources,
 expected runtimes and metadata logging are documented in [docs/hpc.md](docs/hpc.md).
+That guide also includes an optional one-GPU interactive session for short debugging
+and environment checks. Interactive allocations are not a substitute for the four
+version-controlled batch workflows above.
+
+## Notebook workflows
+
+The `notebooks/` directory contains paired HPC and Colab workflows for posterior
+reconstruction, PQMass prior validation and MIRA posterior validation, together with
+a quickstart and the Figure 2 experiment. The notebooks call the shared `src/`
+implementation rather than maintaining separate algorithm copies. See the
+[notebook catalogue](docs/notebooks.md) for expected inputs, execution environment
+and output policy.
+
 
 ## Reproducibility artifacts
 
@@ -142,6 +199,23 @@ use. Private Google Drive links and file IDs are not published; see
 - `docs/`: English Sphinx/MyST/Furo documentation.
 - `tests/`: CPU unit, CLI utility and repository-structure tests.
 - `artifacts/`: metadata and private-on-request access policy for large results.
+- `report/`: the submitted full report and concise project summary.
+
+## Auto-generation Usage
+
+OpenAI ChatGPT and Codex, together with Anthropic Claude Code, were used as supporting
+tools for report structure and editing, mathematical presentation, Python and LaTeX
+review, debugging suggestions, consistency checks, and organising outputs into
+figures and tables. Their outputs were treated as suggestions: the author ran the
+experiments, checked reported values and references, and inspected and executed code
+changes before use. The interpretation, evidence selection and conclusions remain
+the author's responsibility.
+
+One image generated with OpenAI's image-generation tool used the prompt *"A galaxy
+in the shape of the number 7 on a dark background."* It was included only as an input
+to the prompt-matched qualitative out-of-distribution noise experiment, following
+Adam et al. It was not used for prior training or presented as a real astronomical
+observation.
 
 ## Data and attribution
 
