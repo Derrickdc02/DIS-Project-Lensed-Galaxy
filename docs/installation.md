@@ -19,6 +19,14 @@ python -m pip install -e ".[validation]"   # PQMass and MIRA
 python -m pip install -e ".[dev,docs]"     # tests, lint and documentation
 ```
 
+For the exact Python 3.11 CPU versions exercised by CI and Docker, apply the
+recorded constraints after installing CPU PyTorch:
+
+```bash
+python -m pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.13.0+cpu"
+python -m pip install -c requirements/constraints-py311-cpu.txt -e ".[all]"
+```
+
 Check the installation without a GPU:
 
 ```bash
