@@ -56,6 +56,7 @@ def parse_files(files):
 
 
 def main():
+    """Backfill a Weights & Biases run from saved SLURM log files."""
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--files", nargs="+", required=True,

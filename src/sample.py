@@ -259,6 +259,7 @@ def plot_grid(
 
 # ---- Main ----
 def build_arg_parser() -> argparse.ArgumentParser:
+    """Build the posterior-sampling command-line parser."""
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--output_dir", type=str, default="./outputs/probes_final",
                    help="train_prior.py output dir; checkpoint + samples live here")
@@ -290,6 +291,7 @@ def atomic_save(obj, path: Path) -> None:
 
 
 def main():
+    """Generate resumable posterior draws and diagnostic figures."""
     parser = build_arg_parser()
     args = parser.parse_args()
     if args.n_post <= 0 or args.chunk <= 0:

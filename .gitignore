@@ -5,6 +5,7 @@ outputs/
 slurm_logs/*
 !slurm_logs/.gitkeep
 .venv/
+docs/_build/
 *.egg-info/
 __pycache__/
 *.py[cod]

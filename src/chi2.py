@@ -20,6 +20,7 @@ FLUX_A = 5.5
 
 
 def main():
+    """Evaluate posterior-predictive reduced chi-squared diagnostics."""
     p = argparse.ArgumentParser()
     p.add_argument("--output_dir", required=True)
     p.add_argument(

@@ -25,6 +25,7 @@ from score_models import NCSNpp, ScoreModel
 
 
 def setup_distributed():
+    """Initialise torch.distributed from torchrun environment variables."""
     if "WORLD_SIZE" in os.environ and int(os.environ["WORLD_SIZE"]) > 1:
         local_rank = int(os.environ["LOCAL_RANK"])
         rank = int(os.environ["RANK"])
@@ -36,20 +37,24 @@ def setup_distributed():
 
 
 def cleanup_distributed():
+    """Destroy the distributed process group when it is active."""
     if dist.is_initialized():
         dist.destroy_process_group()
 
 
 def is_main(rank):
+    """Return whether a distributed rank is the primary process."""
     return rank == 0
 
 
 def barrier():
+    """Synchronise ranks when distributed execution is active."""
     if dist.is_initialized():
         dist.barrier()
 
 
 def reduce_mean(value, device):
+    """Average a scalar value across all distributed ranks."""
     tensor = torch.tensor(float(value), device=device)
     if dist.is_initialized():
         dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
@@ -58,6 +63,7 @@ def reduce_mean(value, device):
 
 
 def distributed_any(flag, device):
+    """Return whether a Boolean flag is true on any distributed rank."""
     tensor = torch.tensor(int(flag), device=device)
     if dist.is_initialized():
         dist.all_reduce(tensor, op=dist.ReduceOp.MAX)
@@ -121,6 +127,7 @@ def estimate_sigma_max(images, n_pairs=5000, seed=21):
 
 
 class EMA:
+    """Maintain exponential-moving-average copies of trainable parameters."""
     def __init__(self, parameters, decay):
         params = [p for p in parameters if p.requires_grad]
         self.decay = decay
@@ -129,22 +136,26 @@ class EMA:
 
     @torch.no_grad()
     def update(self, parameters):
+        """Update shadow parameters from the current model parameters."""
         params = [p for p in parameters if p.requires_grad]
         for shadow, param in zip(self.shadow, params):
             shadow.mul_(self.decay).add_(param.detach(), alpha=1.0 - self.decay)
 
     @torch.no_grad()
     def store(self, parameters):
+        """Store current model parameters before applying EMA weights."""
         self.backup = [p.detach().clone() for p in parameters if p.requires_grad]
 
     @torch.no_grad()
     def copy_to(self, parameters):
+        """Copy shadow parameters into a model."""
         params = [p for p in parameters if p.requires_grad]
         for param, shadow in zip(params, self.shadow):
             param.copy_(shadow)
 
     @torch.no_grad()
     def restore(self, parameters):
+        """Restore model parameters saved by :meth:`store`."""
         if self.backup is None:
             return
         params = [p for p in parameters if p.requires_grad]
@@ -153,12 +164,14 @@ class EMA:
         self.backup = None
 
     def state_dict(self):
+        """Return the serialisable EMA state."""
         return {
             "decay": self.decay,
             "shadow": [shadow.detach().cpu() for shadow in self.shadow],
         }
 
     def load_state_dict(self, state, parameters):
+        """Restore EMA state and validate it against model parameters."""
         params = [p for p in parameters if p.requires_grad]
         self.decay = float(state["decay"])
         self.shadow = [
@@ -168,10 +181,12 @@ class EMA:
 
 
 def cpu_state_dict(module):
+    """Copy a module state dictionary to detached CPU tensors."""
     return {key: value.detach().cpu() for key, value in module.state_dict().items()}
 
 
 def atomic_torch_save(obj, path):
+    """Write a Torch object atomically through a temporary file."""
     path = Path(path)
     tmp_path = path.with_name(path.name + ".tmp")
     torch.save(obj, tmp_path)
@@ -179,6 +194,7 @@ def atomic_torch_save(obj, path):
 
 
 def save_checkpoint(path, raw_net, optimizer, ema, epoch, step, args, score_model_hparams):
+    """Save resumable model, optimiser, EMA, progress, and configuration state."""
     current_model = cpu_state_dict(raw_net)
 
     ema.store(raw_net.parameters())
@@ -200,6 +216,7 @@ def save_checkpoint(path, raw_net, optimizer, ema, epoch, step, args, score_mode
 
 
 def strip_module_prefix(state_dict):
+    """Remove a leading DDP ``module.`` prefix from state-dictionary keys."""
     if not state_dict:
         return state_dict
     if all(key.startswith("module.") for key in state_dict):
@@ -208,6 +225,7 @@ def strip_module_prefix(state_dict):
 
 
 def load_checkpoint(path, raw_net, optimizer, ema, device):
+    """Restore a complete training checkpoint and return resume metadata."""
     ckpt = torch.load(path, map_location=device, weights_only=False)
 
     if isinstance(ckpt, dict) and "model" in ckpt:
@@ -223,6 +241,7 @@ def load_checkpoint(path, raw_net, optimizer, ema, device):
 
 
 def prune_old_checkpoints(output_dir, keep_last_n):
+    """Retain only the newest numbered checkpoints in an output directory."""
     if keep_last_n <= 0:
         return
     paths = sorted(Path(output_dir).glob("checkpoint_step_*.pt"))
@@ -232,6 +251,7 @@ def prune_old_checkpoints(output_dir, keep_last_n):
 
 
 def build_arg_parser():
+    """Build the distributed prior-training command-line parser."""
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--data_dir", type=str, required=True)
@@ -275,6 +295,7 @@ def build_arg_parser():
 
 
 def main():
+    """Train or resume the distributed 256-pixel score-model prior."""
     args = build_arg_parser().parse_args()
 
     local_rank, rank, world_size = setup_distributed()

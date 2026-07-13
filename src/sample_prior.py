@@ -15,6 +15,7 @@ from sample import load_model, atomic_save
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
+    """Build the unconditional prior-sampling command-line parser."""
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--output_dir", type=str, default="./outputs/probes_final/prior_check",
                    help="where to write prior samples; --ckpt resolves relative to it")
@@ -29,6 +30,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main():
+    """Generate resumable unconditional prior draws."""
     parser = build_arg_parser()
     args = parser.parse_args()
     if args.n_samples <= 0 or args.chunk <= 0:

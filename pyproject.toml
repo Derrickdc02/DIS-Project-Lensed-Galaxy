@@ -32,6 +32,11 @@ validation = [
     "mira_score>=0.1.7",
     "scipy>=1.10",
 ]
+docs = [
+    "sphinx>=7.2",
+    "myst-parser>=2.0",
+    "furo>=2024.1",
+]
 notebooks = [
     "ipykernel>=6.29",
     "jupyterlab>=4.0",
@@ -59,6 +64,9 @@ all = [
     "ruff>=0.5",
     "build>=1.2",
     "nbqa>=1.9",
+    "sphinx>=7.2",
+    "myst-parser>=2.0",
+    "furo>=2024.1",
 ]
 
 [project.scripts]
