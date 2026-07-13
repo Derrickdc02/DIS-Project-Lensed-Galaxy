@@ -133,6 +133,7 @@ container:
 
 deploy-pages:
   image: alpine:3.20
+  allow_failure: true
   stage: deploy
   needs:
     - job: docs
