@@ -5,34 +5,36 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "artifacts" / "manifest.json"
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def test_artifact_manifest_is_explicit_and_machine_readable():
     data = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    assert data["schema_version"] == 1
-    assert isinstance(data["release_ready"], bool)
+    assert data["schema_version"] == 2
+    assert data["release_ready"] is True
     assert data["artifacts"]
 
-    ids = set()
     for artifact in data["artifacts"]:
-        assert artifact["drive_file_id"] not in ids
-        ids.add(artifact["drive_file_id"])
         assert artifact["size_bytes"] > 0
-        assert artifact["visibility"] in {"private", "public"}
+        assert artifact["access"] == "private_on_request"
         assert artifact["reproduction_command"]
+        assert "drive_file_id" not in artifact
+        assert "url" not in artifact
         if artifact["sha256"] is not None:
             assert SHA256.fullmatch(artifact["sha256"])
-        if artifact["visibility"] == "public":
-            assert artifact["sha256"] is not None
-            assert artifact["source_git_sha"] is not None
 
 
-def test_release_gate_matches_incomplete_artifact_metadata():
+def test_private_access_policy_is_actionable_and_does_not_leak_links():
     data = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    incomplete = any(
-        item["visibility"] != "public"
-        or item["sha256"] is None
-        or item["source_git_sha"] is None
-        for item in data["artifacts"]
-    )
-    assert data["release_ready"] is not incomplete
+    policy = data["access_policy"]
+    assert policy["mode"] == "available_upon_reasonable_academic_request"
+    assert EMAIL.fullmatch(policy["contact_email"])
+    assert set(policy["request_information"]) == {
+        "name",
+        "affiliation",
+        "intended_reproducibility_use",
+    }
+
+    public_text = MANIFEST.read_text(encoding="utf-8")
+    assert "drive.google.com" not in public_text
+    assert "drive_file_id" not in public_text
