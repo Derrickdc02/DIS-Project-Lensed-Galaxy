@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "reviewed_at": "2026-07-13",
   "repository": "https://github.com/Derrickdc02/DIS-Project-Lensed-Galaxy",
   "release_ready": true,
@@ -13,15 +13,12 @@
     ],
     "delivery": "Private read-only Google Drive access is granted individually."
   },
-  "provenance_note": "Checksums are recorded where raw bytes were available to the repository audit. Checksums and source Git SHAs are optional for legacy private artifacts; new runs record the Git SHA and environment in their Slurm logs.",
   "artifacts": [
     {
       "role": "stage3_checkpoint",
       "name": "latest.pt",
       "size_bytes": 1294771045,
       "modified_time": "2026-05-26T12:59:15Z",
-      "sha256": null,
-      "source_git_sha": null,
       "generation_record": "Drive args.json; scientific arguments match scripts/run_stage3.sh.",
       "reproduction_command": "sbatch scripts/run_stage3.sh",
       "access": "private_on_request"
@@ -31,8 +28,6 @@
       "name": "posterior_draws.pt",
       "size_bytes": 84216132,
       "modified_time": "2026-07-04T03:30:45Z",
-      "sha256": null,
-      "source_git_sha": null,
       "generation_record": "No machine-readable run manifest accompanies this legacy artifact.",
       "reproduction_command": "sbatch scripts/run_sample.sh",
       "access": "private_on_request"
@@ -42,8 +37,6 @@
       "name": "prior_samples.pt",
       "size_bytes": 268437160,
       "modified_time": "2026-07-10T23:42:48Z",
-      "sha256": null,
-      "source_git_sha": null,
       "generation_record": "No machine-readable run manifest accompanies this legacy artifact.",
       "reproduction_command": "sbatch scripts/run_sample_prior.sh",
       "access": "private_on_request"
@@ -53,8 +46,6 @@
       "name": "posterior_mean_std.png",
       "size_bytes": 1473984,
       "modified_time": "2026-07-04T03:30:46Z",
-      "sha256": "7852b4dd04f36ebb6a613b2161276eec876380cbb62379f583ced94f0b104ce6",
-      "source_git_sha": null,
       "generation_record": "Generated with the posterior sampling run above.",
       "reproduction_command": "sbatch scripts/run_sample.sh",
       "access": "private_on_request"
@@ -64,8 +55,6 @@
       "name": "posterior_chi2_summary_S160.csv",
       "size_bytes": 4564,
       "modified_time": "2026-07-12T10:26:28Z",
-      "sha256": "63b76192f85c0f43a5398911c74b1f420225dc084aaa04f0fc84c00a64141c68",
-      "source_git_sha": null,
       "generation_record": "Archived 16-run, 160-draw posterior chi-squared summary.",
       "reproduction_command": "validate-chi2 --output_dir <posterior-run>",
       "access": "private_on_request"
@@ -75,8 +64,6 @@
       "name": "pqmass_final_summary.npz",
       "size_bytes": 18050,
       "modified_time": "2026-07-12T08:45:35Z",
-      "sha256": "f2d158e71676af33a23f99b6b4191e4d0a5f2b9054fd591a7f4c888e7700e961",
-      "source_git_sha": null,
       "generation_record": "Legacy notebook output; rerun the current CLI for a JSON record.",
       "reproduction_command": "validate-pqmass --prior outputs/probes_final/prior_check --data-dir data/gals_gband_norm --output outputs/validation/pqmass.json",
       "access": "private_on_request"
