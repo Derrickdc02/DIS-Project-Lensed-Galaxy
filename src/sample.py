@@ -17,10 +17,10 @@ import torch.nn.functional as F
 
 from score_models import NCSNpp, ScoreModel
 
-from lensing import build_lens_sim, SOURCE_PIXELSCALE  # src/lensing.py: SIE + external-shear forward model
+from lensing import SOURCE_PIXELSCALE, build_lens_sim
 
 
-# ---- Display scaling ----
+# Display scaling.
 # preprocess.py maps flux -> [-1,1] via x = 2*clip(flux,0,A)/A - 1, so flux = A*(x+1)/2.
 # Adam et al. show intensity on a log scale; invert to flux for LogNorm (display only).
 FLUX_A = 5.5        # PROBES normalization constant (must match data/preprocess.py)
@@ -34,7 +34,7 @@ def to_display_flux(img: torch.Tensor | np.ndarray, floor: float = 1e-3) -> np.n
     return np.clip(FLUX_A * (np.asarray(img) + 1.0) / 2.0, floor, None)
 
 
-# ---- Model + forward operator ----
+# Model and forward operator.
 def load_model(ckpt_path: str | Path, device: torch.device) -> tuple[ScoreModel, int]:
     """Load the EMA score model from a train_prior.py checkpoint."""
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
@@ -55,7 +55,7 @@ def load_model(ckpt_path: str | Path, device: torch.device) -> tuple[ScoreModel,
     return model, int(ckpt["step"])
 
 
-# ---- Posterior sampler (Adam et al. 2022, convolved likelihood, eqs. 19, 20) ----
+# Posterior sampler using the convolved likelihood from Adam et al. (2022).
 def pixelate_image(img: torch.Tensor, factor: int = 2) -> torch.Tensor:
     """Average-pool image-plane outputs by factor, preserving leading dims."""
     if factor == 1:
@@ -68,9 +68,12 @@ def pixelate_image(img: torch.Tensor, factor: int = 2) -> torch.Tensor:
 
 
 def lens_forward(sim, x: torch.Tensor) -> torch.Tensor:
-    """Lens source image x. The shift makes out-of-FOV rays (which source_pixelscale
-    leaves outside the source grid) map to -1 = empty sky, not caustics' 0-pad =
-    mid-flux. In-bounds is unchanged since the interpolation is linear in x."""
+    """Lens a source image while preserving the normalized empty-sky value.
+
+    The shift maps out-of-field rays to -1 (empty sky) instead of the caustics
+    zero-padding value, which corresponds to mid-flux after normalization.
+    In-bounds values are unchanged because the interpolation is linear in x.
+    """
     return sim({"source": {"image": x + 1.0}}) - 1.0
 
 
@@ -109,10 +112,9 @@ def posterior_sample(
     return x
 
 
-# ---- Ground-truth source ----
+# Ground-truth source loading.
 def discover_sources(data_dir: str | Path) -> list[Path]:
     """Return sorted preprocessed PROBES source files."""
-
     source_files = sorted(Path(data_dir).glob("*.npy"))
     if not source_files:
         raise FileNotFoundError(f"No .npy files found in {data_dir}")
@@ -121,9 +123,8 @@ def discover_sources(data_dir: str | Path) -> list[Path]:
 
 def load_source(data_dir: str | Path, pick: int, device: torch.device) -> tuple[torch.Tensor, str]:
     """Load one preprocessed PROBES image as a two-dimensional tensor."""
-
     source_files = discover_sources(data_dir)
-    if not -len(source_files) <= pick < len(source_files):
+    if not 0 <= pick < len(source_files):
         raise IndexError(f"Source index {pick} is outside [0, {len(source_files) - 1}]")
     path = source_files[pick]
     arr = np.load(path).astype(np.float32)
@@ -142,9 +143,9 @@ def load_source(data_dir: str | Path, pick: int, device: torch.device) -> tuple[
     return src, name
 
 
-# ---- Diagnostics ----
+# Diagnostic plots.
 def plot_mean_std(src, obs, post_mean, post_std, n_post: int, out_path: Path) -> None:
-    """True | obs | mean | std | residual | z-score, with calibration numbers."""
+    """Plot truth, observation, posterior moments, residuals, and z-scores."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -257,7 +258,7 @@ def plot_grid(
     plt.close(fig)
 
 
-# ---- Main ----
+# Command-line interface.
 def build_arg_parser() -> argparse.ArgumentParser:
     """Build the posterior-sampling command-line parser."""
     p = argparse.ArgumentParser(description=__doc__)
@@ -319,8 +320,8 @@ def main():
     # Geometry from src/lensing.py defaults: SIE (q=0.7, phi=pi/6, Rein=1.2) + shear (0.03, 0.04).
     sim = build_lens_sim(device=device, source_pixelscale=SOURCE_PIXELSCALE)
 
-    # --- Resumable observation: persist y so every chunk (and any resume) uses the
-    # same noisy observation; refuse to mix chunks made with different settings. ---
+    # Persist the observation so every chunk and resumed run uses identical noise.
+    # Refuse to combine chunks created with different observation settings.
     chunks_dir = samples_dir / "chunks"
     chunks_dir.mkdir(parents=True, exist_ok=True)
     obs_path = samples_dir / "observation.pt"
@@ -352,8 +353,8 @@ def main():
                      "src_name": src_name, "noise_sigma": args.noise_sigma,
                      "seed": args.seed}, obs_path)
 
-    # --- Posterior draws, one resumable chunk at a time (chunk c seeded args.seed+c,
-    # so a resumed job reproduces an uninterrupted run exactly). ---
+    # Seed each resumable chunk independently so resumed and uninterrupted runs
+    # produce identical posterior draws.
     print(f"\nDrawing {args.n_post} posterior samples "
           f"({n_chunks} x {args.chunk}) at {args.steps} steps...")
     t0 = time.time()
@@ -378,7 +379,7 @@ def main():
         elapsed = time.time() - t0
         print(f"  chunk {c + 1}/{n_chunks} done -> {chunk_path.name} ({elapsed:.1f}s elapsed)")
 
-    # --- Assemble all chunks (freshly drawn + previously saved) ----------- #
+    # Assemble newly generated and previously saved chunks.
     post = torch.cat(
         [torch.load(chunks_dir / f"chunk_{c:03d}.pt", map_location="cpu")
          for c in range(n_chunks)],
@@ -397,7 +398,7 @@ def main():
     )
     print(f"Saved {post.shape[0]} draws -> {draws_path}")
 
-    # Diagnostics
+    # Generate diagnostic plots.
     mean_std_png = samples_dir / "posterior_mean_std.png"
     grid_png = samples_dir / "posterior_grid.png"
     plot_mean_std(

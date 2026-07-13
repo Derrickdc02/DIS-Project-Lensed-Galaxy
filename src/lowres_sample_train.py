@@ -1,5 +1,5 @@
-"""
-Stage 2 training: NCSN++ score-based prior on PROBES at 128*128.
+"""Train an NCSN++ score-based prior on PROBES at 128 by 128 pixels.
+
 Single-GPU run, ~32k optimization steps.
 
 Usage:
@@ -9,8 +9,8 @@ Usage:
                                  --lr 2e-4 --nf 128 --ch_mult 1 2 2 2
 """
 
-import glob
 import argparse
+import glob
 import time
 from pathlib import Path
 
@@ -19,14 +19,12 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 
-from score_models import ScoreModel, NCSNpp
+from score_models import NCSNpp, ScoreModel
 
 
-# ----------------------------
-# Data
-# ----------------------------
+# Data loading.
 def load_probes(path, n_subset=None, image_size=128, seed=21):
-    """Load preprocessed PROBES g-band .npy files in [-1, 1]"""
+    """Load preprocessed PROBES g-band arrays normalized to [-1, 1]."""
     rng = np.random.RandomState(seed)
     files = sorted(glob.glob(str(Path(path) / "*.npy")))
     if not files:
@@ -51,22 +49,23 @@ def load_probes(path, n_subset=None, image_size=128, seed=21):
 
 
 class ProbesDataset(Dataset):
-    """Tensors (N, 1, H, W) in [-1, 1], pre-moved to device"""
+    """Store normalized image tensors, optionally preloaded on a device."""
 
     def __init__(self, images, device=None):
+        """Convert image arrays to channel-first Torch tensors."""
         t = torch.from_numpy(images).float().unsqueeze(1)
         self.images = t.to(device) if device is not None else t
 
     def __len__(self):
+        """Return the number of images."""
         return len(self.images)
 
     def __getitem__(self, idx):
+        """Return one normalized image tensor."""
         return self.images[idx]
 
 
-# ----------------------------
-# Sigma_max heuristic
-# ----------------------------
+# Maximum-noise heuristic.
 
 
 def estimate_sigma_max(dataset, n_pairs=5000, seed=21):
@@ -78,28 +77,26 @@ def estimate_sigma_max(dataset, n_pairs=5000, seed=21):
     return sigma_max
 
 
-# ----------------------------
-# Main (training loop)
-# ----------------------------
+# Command-line entry point.
 def main():
     """Train the single-GPU 128-pixel score-model pilot."""
     parser = argparse.ArgumentParser()
 
-    # Data
+    # Data options.
     parser.add_argument("--data_dir", type=str, required=True)
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--n_subset", type=int, default=-1, help="-1 for full dataset")
     parser.add_argument("--image_size", type=int, default=128)
 
-    # Architecture
+    # Model architecture.
     parser.add_argument("--nf", type=int, default=128)
     parser.add_argument("--ch_mult", type=int, nargs="+", default=[1, 2, 2, 2])
 
-    # SDE
+    # Stochastic differential equation.
     parser.add_argument("--sigma_min", type=float, default=1e-4)
     parser.add_argument("--sigma_max", type=float, default=-1, help="-1 to auto-estimate from data")
 
-    # Training
+    # Training options.
     parser.add_argument("--epochs", type=int, default=1000)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=2e-4)
@@ -119,20 +116,20 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # ---- Data ----
+    # Load the selected training data.
     n_subset = None if args.n_subset == -1 else args.n_subset
     images = load_probes(args.data_dir, n_subset=n_subset, image_size=args.image_size)
     dataset = ProbesDataset(images, device=device)
     print(f"Dataset: {len(dataset)} images on {dataset.images.device}")
 
-    # ---- Sigma_max ----
+    # Select the maximum diffusion noise scale.
     if args.sigma_max < 0:
         sigma_max = estimate_sigma_max(dataset)
     else:
         sigma_max = args.sigma_max
     print(f"VE SDE: sigma_min={args.sigma_min:.1e}, sigma_max={sigma_max:.2f}")
 
-    # ---- Model ----
+    # Build the score model.
     net = NCSNpp(
         channels=1,
         nf=args.nf,
@@ -148,12 +145,12 @@ def main():
     n_params = sum(p.numel() for p in model.parameters())
     print(f"NCSN++: {n_params:,} parameters")
 
-    # ---- Steps estimate ----
+    # Report the expected optimization length.
     steps_per_epoch = max(1, len(dataset) // args.batch_size)
     total_steps = steps_per_epoch * args.epochs
     print(f"Plan: {args.epochs} epochs × {steps_per_epoch} steps = {total_steps:,} steps")
 
-    # ---- Train ----
+    # Start single-GPU training.
     print("\nTraining...")
     t0 = time.time()
     model.fit(
