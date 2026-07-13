@@ -1,68 +1,69 @@
-# DIS-Project-Lensed-Galaxy
+# DIS Project: Lensed Galaxy
 
-We apply score-based diffusion models to strong gravitational lensing, reconstructing posterior distributions of background galaxies from noisy, contaminated observations. This Bayesian approach enables image-level uncertainty quantification and offers insights for both dark matter studies and trustworthy AI image generation.
+A reproducible open-science pipeline for score-based Bayesian reconstruction of
+background galaxies in strong gravitational lenses. An NCSN++ prior learned from
+PROBES g-band galaxies is combined with a differentiable SIE plus external-shear lens
+and a convolved Gaussian likelihood to generate posterior source samples.
 
-Method follows Adam et al. 2022 ([arXiv:2211.03812](https://arxiv.org/abs/2211.03812)): an NCSN++ score model trained on PROBES galaxies serves as the prior, and posterior sources are drawn with a convolved-Gaussian-likelihood reverse-diffusion sampler through a differentiable SIE + external-shear lens model (caustics).
+## Documentation
 
-## Layout
+The complete scientific workflow, CLI/API reference, Wilkes3 instructions, notebook
+catalogue and limitations are published at:
 
-```
-src/
-  lensing.py             SIE + external-shear forward model (caustics)
-  train_prior.py         stage 3: 256x256 prior, multi-GPU DDP training
-  lowres_sample_train.py stage 2: 128x128 prior, single GPU
-  sample.py              posterior sampling from a mock lensed observation
-  sample_prior.py        unconditional prior draws (PQMass prior check)
-  chi2.py                posterior-predictive chi^2 check on saved draws
-  figure2.py             Adam et al. Figure 2 reproduction (OOD source + noise sweep)
-  backfill_wandb.py      rebuild W&B history from SLURM logs
-data/preprocess.py       raw PROBES FITS -> normalized 256x256 .npy
-notebooks/               exploratory prototypes of the above
-scripts/                 SLURM job scripts, Wilkes3 (run_stage2.sh, run_stage3.sh, run_sample.sh, run_sample_prior.sh)
-```
+<https://derrickdc02.github.io/DIS-Project-Lensed-Galaxy/>
 
-## Setup
+The source documentation is in [`docs/`](docs/), and can be built locally with:
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[all]"   # or pick extras: preprocess, notebooks, dev
+python -m pip install -e ".[docs]"
+sphinx-build -W --keep-going -b html docs docs/_build/html
 ```
 
-The SLURM scripts live in `scripts/`; submit them from the repo root (e.g. `sbatch scripts/run_stage2.sh`) so relative paths resolve. They activate `$HOME/rds/hpc-work/venv/dis_proj` by default; override with `VENV=/path/to/venv sbatch ...`.
+## Quick start
 
-## Pipeline
-
-1. **Preprocess** — `cd data && python preprocess.py` (expects raw FITS in `data/raws/`, writes `data/gals_gband_norm/`).
-2. **Train the prior** — `sbatch scripts/run_stage2.sh` (low-res pilot) or `sbatch scripts/run_stage3.sh` (full 256x256, 4x A100, resumable via `--resume auto`).
-3. **Sample the posterior** — `sbatch scripts/run_sample.sh`; chunked and resumable, writes draws + diagnostic figures under `outputs/.../samples/`.
-4. **Validate the posterior** — `python src/chi2.py --output_dir <run dir>` (per-draw chi^2/N ~ 1).
-5. **Validate the prior** — `sbatch scripts/run_sample_prior.sh` for unconditional draws, then run `notebooks/PQMassPriorCheck.ipynb` (PQMass two-sample test vs PROBES).
-6. **Figure 2** — `python src/figure2.py --ckpt <checkpoint>` (OOD "7" source across noise levels).
-
-## Data & attribution
-
-This project reproduces the method of Adam et al. (2022) (see the top of this
-README); it does **not** build on the `astroddpm` codebase. `astroddpm` is used
-only to *fetch the raw data*: its script
-
-> https://github.com/Smith42/astroddpm/blob/master/data/probes/get_probes.sh
-> (accessed 2026-07-01)
-
-downloads the full PROBES dataset (raw multi-band FITS) into `data/raws/`. The
-g-band selection, center-crop, and normalization to 256x256 `.npy` are done by
-this repository's own `data/preprocess.py`. None of the PROBES imaging is
-redistributed here. The underlying data is the PROBES compilation (Photometry
-and Rotation curve OBservations from Extragalactic Surveys; Stone & Courteau et
-al.), which carries its own terms.
-
-`astroddpm`'s source code is licensed under the **GNU Affero General Public
-License v3.0 (AGPL-3.0)**, but this repository reuses none of that code — only
-the raw PROBES data its script downloads. AGPL applies to code, not to the data,
-so this project remains under its own MIT license.
-
-## Tests
+Python 3.11 is the supported environment:
 
 ```bash
-pip install -e ".[dev]"
-pytest
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[all]"
+pytest -q
+preprocess-probes --help
 ```
+
+GPU workflows are submitted from the repository root:
+
+```bash
+sbatch scripts/run_stage2.sh
+sbatch scripts/run_stage3.sh
+sbatch scripts/run_sample.sh
+sbatch scripts/run_sample_prior.sh
+```
+
+Override runtime paths without editing scientific parameters:
+
+```bash
+sbatch --export=ALL,VENV=/path/to/venv,CKPT=/absolute/path/latest.pt   scripts/run_sample.sh
+```
+
+Stage 3 requests 36 hours and uses `--max_hours 35` to save and exit before Slurm's
+hard limit. Training uses `--resume auto`; sampling resumes at completed chunk
+boundaries. Outputs are written below `outputs/` by default and Slurm logs below
+`slurm_logs/`.
+
+## Repository layout
+
+- `src/`: installable training, sampling, preprocessing and validation modules.
+- `scripts/`: strict Wilkes3/Slurm launchers and shared shell functions.
+- `notebooks/`: eight curated HPC/Colab workflows that call shared `src/` code.
+- `docs/`: English Sphinx/MyST/Furo documentation.
+- `tests/`: CPU unit, CLI utility and notebook-structure tests.
+
+## Data and attribution
+
+This project follows Adam et al. (2022),
+[arXiv:2211.03812](https://arxiv.org/abs/2211.03812), but does not copy the
+`astroddpm` implementation. Its PROBES download helper is used only to obtain the raw
+multi-band FITS data; this repository performs its own g-band selection, centre crop
+and normalisation. PROBES imaging is not redistributed here and remains subject to
+its own terms. Repository code is MIT licensed; see [`LICENSE`](LICENSE).
