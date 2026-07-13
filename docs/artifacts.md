@@ -14,14 +14,11 @@ individual read-only access.
 
 Private Drive links and file IDs are intentionally omitted from the public repository.
 The documented access process, version-controlled generation commands and CPU-tested
-environment form the release policy; public file access and large-file SHA-256 values
-are not release requirements.
+environment form the artifact access policy.
 
-SHA-256 is retained for three small outputs whose raw bytes were available during the
-audit. Large legacy tensors have no recorded SHA-256 because they were not downloaded
-solely for hashing. Legacy artifacts also predate the standard Slurm provenance log,
-so their generating Git SHA is explicitly recorded as unknown. New jobs log the Git
-SHA, dirty state, packages, resources, command and timing.
+The manifest records file names, sizes, timestamps, generation notes and reproduction
+commands. Legacy artifacts predate the standard Slurm provenance log; new jobs record
+the Git commit, dirty state, packages, resources, command and timing.
 
 ## Archived chi-squared baseline
 

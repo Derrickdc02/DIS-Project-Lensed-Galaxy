@@ -4,13 +4,12 @@ import re
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "artifacts" / "manifest.json"
-SHA256 = re.compile(r"^[0-9a-f]{64}$")
 EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def test_artifact_manifest_is_explicit_and_machine_readable():
     data = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    assert data["schema_version"] == 2
+    assert data["schema_version"] == 3
     assert data["release_ready"] is True
     assert data["artifacts"]
 
@@ -20,8 +19,7 @@ def test_artifact_manifest_is_explicit_and_machine_readable():
         assert artifact["reproduction_command"]
         assert "drive_file_id" not in artifact
         assert "url" not in artifact
-        if artifact["sha256"] is not None:
-            assert SHA256.fullmatch(artifact["sha256"])
+        assert "sha256" not in artifact
 
 
 def test_private_access_policy_is_actionable_and_does_not_leak_links():

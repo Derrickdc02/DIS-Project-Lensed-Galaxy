@@ -14,19 +14,13 @@ upon reasonable request. Email **derricktang02@gmail.com** with:
 - a short description of the intended reproducibility use.
 
 Approved requests receive individual, read-only Google Drive access. The files do not
-need to be publicly accessible for this release because the code, environment,
-commands and access procedure are documented, and every artifact can be regenerated
-with the version-controlled workflows.
+need to be publicly accessible because the code, environment, commands and access
+procedure are documented, and every artifact can be regenerated with the
+version-controlled workflows.
 
-## Integrity and provenance
+## Run records
 
-SHA-256 is recorded for the three small artifacts whose raw bytes were available
-during the audit. The three large legacy tensors remain without SHA-256 because their
-owner chose not to download them solely to calculate a checksum. This is disclosed in
-the manifest and is not a publication blocker under the private-on-request policy.
-Recipients can still calculate a local checksum after download and report any transfer
-problem.
-
-Legacy artifacts also predate the new Slurm provenance logging, so their generating
-Git SHA is unknown. New jobs record the Git SHA, dirty state, environment, command,
-resources and timing in `slurm_logs/`; future shared artifacts should retain that log.
+The manifest records file names, sizes, timestamps, generation notes and the current
+reproduction command. Legacy artifacts predate the standard Slurm provenance log.
+New jobs record the Git commit, dirty state, environment, command, resources and
+timing in `slurm_logs/`; retain the matching log when sharing results from a new run.
