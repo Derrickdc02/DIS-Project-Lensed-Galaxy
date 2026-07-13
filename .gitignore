@@ -10,6 +10,7 @@ docs/_build/
 __pycache__/
 *.py[cod]
 .DS_Store
+*:Zone.Identifier
 
 # Jupyter checkpoints
 .ipynb_checkpoints/
