@@ -28,7 +28,8 @@ variables.
 
 GitLab Pages availability and its final URL depend on the institutional GitLab
 configuration. After a successful default-branch pipeline, inspect
-`Deploy > Pages` in the project.
+`Deploy > Pages` in the project. Pages deployment is allowed to fail without
+masking failures in the required Python, shell, documentation or container jobs.
 
 The container validates installation and CPU-safe commands only. It does not emulate
 Slurm, CUDA, multi-GPU DDP, model training or full diffusion sampling. A successful
