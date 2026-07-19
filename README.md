@@ -219,9 +219,15 @@ observation.
 
 ## Data and attribution
 
-This project follows Adam et al. (2022),
-[arXiv:2211.03812](https://arxiv.org/abs/2211.03812), but does not copy the
-`astroddpm` implementation. Its PROBES download helper is used only to obtain the raw
-multi-band FITS data; this repository performs its own g-band selection, centre crop
-and normalisation. PROBES imaging is not redistributed here and remains subject to
-its own terms. Repository code is MIT licensed; see [`LICENSE`](LICENSE).
+This project follows the methodology described by Adam et al. (2022),
+[arXiv:2211.03812](https://arxiv.org/abs/2211.03812). Adam et al. report using Song
+et al.'s reference PyTorch NCSN++ implementation,
+[`score_sde_pytorch`](https://github.com/yang-song/score_sde_pytorch). Separately, this
+project used the `astroddpm` PROBES download helper only to obtain the raw multi-band
+FITS data; it performs its own g-band selection, centre crop and normalisation.
+PROBES imaging is not redistributed here and remains subject to its own terms.
+The implementation uses
+[`score_models` v0.5.11](https://pypi.org/project/score-models/0.5.11/) for NCSN++ and
+the VE SDE, and [`caustics` v1.6.0](https://github.com/Ciela-Institute/caustics/tree/v1.6.0)
+for differentiable strong-lensing simulation. Repository code is MIT licensed; see
+[`LICENSE`](LICENSE).
